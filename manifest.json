@@ -1,5 +1,5 @@
 {
-  "name": "KCR Booking & Revenue",
+  "name": "King's Court Resort — Booking & Revenue",
   "short_name": "KCR Booking",
   "description": "Kings Court Resort — room bookings and revenue tracker.",
   "start_url": "./index.html",
@@ -7,7 +7,7 @@
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#FBF9F3",
-  "theme_color": "#22281F",
+  "theme_color": "#1D2E4F",
   "icons": [
     {
       "src": "icon-192.png",

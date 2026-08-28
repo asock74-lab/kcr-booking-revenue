@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>KCR Booking & Revenue</title>
-<meta name="theme-color" content="#22281F" />
+<meta name="theme-color" content="#1D2E4F" />
 <link rel="manifest" href="./manifest.json" />
 <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
 <link rel="icon" href="./favicon-32.png" sizes="32x32" />
@@ -13,8 +13,8 @@
 <meta name="apple-mobile-web-app-title" content="KCR Booking" />
 <style>
   :root{
-    --ink:#22281F; --paper:#FBF9F3; --panel:#FFFFFF; --line:#E6E1D4;
-    --gold:#B8935B; --gold-dark:#8C6C3E; --teal:#3F6D5C; --teal-soft:#E7EFEA;
+    --ink:#1D2E4F; --paper:#FBF9F3; --panel:#FFFFFF; --line:#E6E1D4;
+    --gold:#C0A062; --gold-dark:#96793F; --teal:#3F6D5C; --teal-soft:#E7EFEA;
     --rust:#A3492F; --rust-soft:#F4E6E0; --muted:#726C5E;
     --serif: Georgia, 'Times New Roman', serif;
     --sans: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -29,7 +29,7 @@
   .sidebar{width:210px;flex-shrink:0;background:var(--ink);padding:24px 14px;position:sticky;top:0;height:100vh;overflow-y:auto;}
   .brand{display:flex;align-items:center;gap:10px;padding:0 4px;margin-bottom:28px;}
   .brand img{width:30px;height:30px;border-radius:6px;}
-  .brand-text .name{font-family:var(--serif);font-size:19px;font-weight:700;color:var(--paper);letter-spacing:.08em;}
+  .brand-text .name{font-family:var(--serif);font-size:14.5px;font-weight:700;color:var(--paper);letter-spacing:.02em;white-space:nowrap;}
   .brand-text .sub{font-family:var(--sans);font-size:9.5px;color:#B8AF98;letter-spacing:.16em;margin-top:1px;}
   .nav-btn{width:100%;display:flex;align-items:center;gap:9px;padding:10px 12px;margin-bottom:4px;border-radius:8px;border:none;
     background:transparent;color:#C9C4B4;cursor:pointer;font-size:13.5px;font-weight:500;text-align:left;border-left:3px solid transparent;}
@@ -134,10 +134,10 @@
 <div class="layout">
   <div class="sidebar no-print">
     <div class="brand">
-      <img src="./icon-192.png" alt="KCR" />
+      <img src="./sidebar-mark.png" alt="Kings Court Resort" />
       <div class="brand-text">
-        <div class="name">K C R</div>
-        <div class="sub">HOSPITALITY</div>
+        <div class="name">KING'S COURT</div>
+        <div class="sub">RESORT</div>
       </div>
     </div>
     <div id="nav"></div>
@@ -573,7 +573,7 @@ function renderReport(){
     '<button class="btn btn-gold" id="printBtn">🖨 Print / Save as PDF</button></div>';
 
   html += '<div class="report-area" id="print-area">'+
-    '<div class="report-head"><div class="k">K C R</div><div class="t">Monthly Room Booking &amp; Revenue Report</div>'+
+    '<div class="report-head"><div class="k">KING\u2019S COURT RESORT</div><div class="t">Monthly Room Booking &amp; Revenue Report</div>'+
     '<div class="m">Month: '+monthLabel(state.selectedMonth)+'</div></div>';
 
   html += reportSection("A","Overall Summary", '<div class="stat-inline">'+

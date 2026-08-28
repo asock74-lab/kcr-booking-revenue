@@ -1,5 +1,5 @@
 // KCR Booking & Revenue — service worker
-const CACHE_VERSION = "kcr-booking-v1";
+const CACHE_VERSION = "kcr-booking-v2";
 
 const APP_SHELL = [
   "./",
@@ -10,6 +10,7 @@ const APP_SHELL = [
   "./icon-512-maskable.png",
   "./apple-touch-icon.png",
   "./favicon-32.png",
+  "./sidebar-mark.png",
 ];
 
 self.addEventListener("install", (event) => {
