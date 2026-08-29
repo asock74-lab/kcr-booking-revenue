@@ -128,9 +128,30 @@
     .no-print{display:none !important;}
     @page{size:A4;margin:14mm;}
   }
+  .sync-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:5px 10px;border-radius:20px;background:var(--teal-soft);color:var(--teal);}
+  .sync-dot{width:7px;height:7px;border-radius:50%;background:var(--teal);}
+  .sync-badge.offline{background:var(--rust-soft);color:var(--rust);}
+  .sync-badge.offline .sync-dot{background:var(--rust);}
+  .sync-badge.loading{background:#F1EEE4;color:var(--muted);}
+  .sync-badge.loading .sync-dot{background:var(--muted);animation:pulse 1.2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
 </style>
 </head>
 <body>
+<div id="authScreen" style="display:none;min-height:100vh;align-items:center;justify-content:center;padding:20px;">
+  <div style="width:100%;max-width:360px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:32px 28px;text-align:center;">
+    <img src="./sidebar-mark.png" alt="Kings Court Resort" style="width:56px;height:56px;border-radius:12px;margin-bottom:14px;" />
+    <div style="font-family:var(--serif);font-size:19px;font-weight:700;color:var(--ink);">KING'S COURT RESORT</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:2px;margin-bottom:22px;">Booking &amp; Revenue — Sign in</div>
+    <div id="authErr"></div>
+    <div style="text-align:left;">
+      <div class="field"><label>Email</label><input type="email" class="input" id="authEmail" autocomplete="username"></div>
+      <div class="field"><label>Password</label><input type="password" class="input" id="authPassword" autocomplete="current-password"></div>
+    </div>
+    <button class="btn btn-gold" id="authSubmit" style="width:100%;justify-content:center;margin-top:6px;">Sign In</button>
+  </div>
+</div>
+<div id="appRoot" style="display:none;">
 <div class="layout">
   <div class="sidebar no-print">
     <div class="brand">
@@ -148,14 +169,32 @@
         <div class="page-title">KCR — Booking &amp; Revenue</div>
         <div class="page-sub">Management dashboard · not for daily hotel operations</div>
       </div>
-      <div id="monthSelectorWrap"></div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div id="syncBadge"></div>
+        <div id="monthSelectorWrap"></div>
+        <button class="btn btn-ghost" id="signOutBtn" style="padding:6px 10px;font-size:12px;">Sign Out</button>
+      </div>
     </div>
     <div id="view"></div>
   </div>
 </div>
 <div id="modalRoot"></div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script>
+window.__firebaseConfig = {
+  apiKey: "AIzaSyATu8WowqRfBtte_naHiU67sDGwyXC5WBI",
+  authDomain: "kcr-booking-revenue.firebaseapp.com",
+  projectId: "kcr-booking-revenue",
+  storageBucket: "kcr-booking-revenue.firebasestorage.app",
+  messagingSenderId: "691448953322",
+  appId: "1:691448953322:web:bd57cf02bb2233b0e19a93"
+};
+</script>
 <script>
 (function(){
 "use strict";
@@ -230,17 +269,90 @@ var state = {
   bookings: [],
   view: "dashboard",
   selectedMonth: todayISO().slice(0,7),
-  editing: null
+  editing: null,
+  syncStatus: "loading" /* loading | online | offline */
 };
 
-function load(){
+/* ---------- Firestore wiring ---------- */
+var db = null;
+var bookingsCol = null;
+var firstSnapshotReceived = false;
+
+function initFirestore(){
   try{
-    var raw = localStorage.getItem(STORAGE_KEY);
-    state.bookings = raw ? JSON.parse(raw) : makeSampleData();
-  }catch(e){ state.bookings = makeSampleData(); }
+    if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(window.__firebaseConfig); }
+    db = firebase.firestore();
+    try{ db.enablePersistence({synchronizeTabs:true}).catch(function(){}); }catch(e){}
+    bookingsCol = db.collection("bookings");
+
+    bookingsCol.onSnapshot(function(snapshot){
+      var rows = [];
+      snapshot.forEach(function(doc){ rows.push(doc.data()); });
+      state.bookings = rows;
+      state.syncStatus = navigator.onLine ? "online" : "offline";
+
+      if(!firstSnapshotReceived){
+        firstSnapshotReceived = true;
+        if(rows.length === 0){ seedSampleData(); }
+      }
+      renderAll();
+    }, function(err){
+      console.error("Firestore sync error:", err);
+      state.syncStatus = "offline";
+      firstSnapshotReceived = true;
+      renderAll();
+    });
+  }catch(e){
+    console.error("Firebase init failed:", e);
+    state.syncStatus = "offline";
+    firstSnapshotReceived = true;
+    renderAll();
+  }
 }
-function persist(){
-  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state.bookings)); }catch(e){}
+
+function seedSampleData(){
+  var samples = makeSampleData();
+  var batch = db.batch();
+  samples.forEach(function(b){ batch.set(bookingsCol.doc(b.id), b); });
+  batch.commit().catch(function(e){ console.error("Seed failed:", e); });
+}
+
+function saveBooking(booking){
+  if(!bookingsCol) return;
+  bookingsCol.doc(booking.id).set(booking).catch(function(e){
+    console.error("Save failed:", e);
+    alert("Couldn't save — check your internet connection and try again.");
+  });
+}
+function deleteBooking(id){
+  if(!bookingsCol) return;
+  bookingsCol.doc(id).delete().catch(function(e){
+    console.error("Delete failed:", e);
+    alert("Couldn't delete — check your internet connection and try again.");
+  });
+}
+function deleteBookingsWhere(predicate){
+  if(!bookingsCol) return;
+  var toDelete = state.bookings.filter(predicate);
+  if(toDelete.length === 0) return;
+  var batch = db.batch();
+  toDelete.forEach(function(b){ batch.delete(bookingsCol.doc(b.id)); });
+  batch.commit().catch(function(e){ console.error("Batch delete failed:", e); });
+}
+function addSampleData(){
+  if(!bookingsCol) return;
+  seedSampleData();
+}
+
+window.addEventListener("online", function(){ state.syncStatus="online"; renderSyncBadge(); });
+window.addEventListener("offline", function(){ state.syncStatus="offline"; renderSyncBadge(); });
+
+function renderSyncBadge(){
+  var el = document.getElementById("syncBadge");
+  if(!el) return;
+  var cls = state.syncStatus==="online" ? "" : state.syncStatus==="offline" ? "offline" : "loading";
+  var label = state.syncStatus==="online" ? "Synced" : state.syncStatus==="offline" ? "Offline" : "Connecting…";
+  el.innerHTML = '<div class="sync-badge '+cls+'"><span class="sync-dot"></span>'+label+'</div>';
 }
 
 function monthBookings(){
@@ -474,8 +586,7 @@ function renderBookings(){
   document.querySelectorAll("[data-del]").forEach(function(btn){
     btn.addEventListener("click", function(){
       if(confirm("Delete this booking? This cannot be undone.")){
-        state.bookings = state.bookings.filter(function(x){ return x.id!==btn.getAttribute("data-del"); });
-        persist(); renderBookings();
+        deleteBooking(btn.getAttribute("data-del"));
       }
     });
   });
@@ -545,12 +656,8 @@ function openBookingModal(booking){
     else if(!document.getElementById("f_amount").value || isNaN(form.amount) || form.amount<0) err = "Enter a valid amount.";
     if(err){ document.getElementById("modalErr").innerHTML = '<div class="err-box">⚠ '+err+'</div>'; return; }
 
-    var exists = state.bookings.some(function(b){ return b.id===form.id; });
-    if(exists) state.bookings = state.bookings.map(function(b){ return b.id===form.id ? form : b; });
-    else state.bookings.push(form);
-    persist();
+    saveBooking(form);
     closeModal();
-    renderBookings();
   });
 }
 function field(label, inputHtml){
@@ -647,35 +754,36 @@ function renderSettings(){
   var html = '<div style="max-width:620px;">'+
     '<div class="page-title" style="font-size:20px;margin-bottom:14px;">Settings</div>'+
     '<div class="card" style="padding:18px;margin-bottom:14px;"><div class="eyebrow">Data Storage</div>'+
-    '<div style="font-size:13px;margin-top:8px;line-height:1.5;">'+state.bookings.length+' booking record(s) stored in this browser'+
+    '<div style="font-size:13px;margin-top:8px;line-height:1.5;">'+state.bookings.length+' booking record(s) in the shared cloud database'+
     (sampleCount>0 ? ' ('+sampleCount+' marked as sample data)':'')+'. '+
-    'Records are saved to this browser only (localStorage) — they won\u2019t sync across devices.</div></div>'+
+    'Records sync automatically across every device that opens this app.</div></div>'+
 
     '<div class="card" style="padding:18px;margin-bottom:14px;"><div class="eyebrow">Sample Data</div>'+
-    '<div style="font-size:13px;color:var(--muted);margin:8px 0 12px;">Load sample bookings to try the dashboard, or remove them once you start entering real data.</div>'+
+    '<div style="font-size:13px;color:var(--muted);margin:8px 0 12px;">Load sample bookings to try the dashboard, or remove them once you start entering real data. This affects every device.</div>'+
     '<div style="display:flex;gap:10px;"><button class="btn btn-outline" id="loadSampleBtn">Load Sample Data</button>'+
     (sampleCount>0 ? '<button class="btn btn-outline" id="removeSampleBtn">🗑 Remove Sample Data ('+sampleCount+')</button>' : '')+
     '</div></div>'+
 
     '<div class="card" style="padding:18px;border-color:#A3492F55;"><div class="eyebrow" style="color:var(--rust);">Danger Zone</div>'+
-    '<div style="font-size:13px;color:var(--muted);margin:8px 0 12px;">This permanently deletes every booking record in this browser, including real data. This cannot be undone.</div>'+
+    '<div style="font-size:13px;color:var(--muted);margin:8px 0 12px;">This permanently deletes every booking record from the shared database, on every device, including real data. This cannot be undone.</div>'+
     '<div id="resetArea"><button class="btn btn-danger" id="resetBtn">↺ Clear All Data</button></div></div>'+
     '</div>';
   document.getElementById("view").innerHTML = html;
 
   document.getElementById("loadSampleBtn").addEventListener("click", function(){
-    state.bookings = state.bookings.concat(makeSampleData()); persist(); renderSettings();
+    addSampleData();
   });
   var rm = document.getElementById("removeSampleBtn");
   if(rm) rm.addEventListener("click", function(){
-    state.bookings = state.bookings.filter(function(b){ return !b.isSample; }); persist(); renderSettings();
+    deleteBookingsWhere(function(b){ return b.isSample; });
   });
   document.getElementById("resetBtn").addEventListener("click", function(){
     document.getElementById("resetArea").innerHTML = '<span style="font-size:13px;color:var(--rust);font-weight:700;">Are you sure? </span>'+
       '<button class="btn btn-danger" id="confirmReset">Yes, delete everything</button> '+
       '<button class="btn btn-ghost" id="cancelReset">Cancel</button>';
     document.getElementById("confirmReset").addEventListener("click", function(){
-      state.bookings = []; persist(); renderSettings();
+      deleteBookingsWhere(function(){ return true; });
+      renderSettings();
     });
     document.getElementById("cancelReset").addEventListener("click", renderSettings);
   });
@@ -685,6 +793,11 @@ function renderSettings(){
 function renderAll(){
   renderNav();
   renderMonthSelector();
+  renderSyncBadge();
+  if(!firstSnapshotReceived && state.bookings.length===0){
+    document.getElementById("view").innerHTML = '<div style="padding:60px 0;text-align:center;color:var(--muted);font-size:13px;">Connecting to the shared database…</div>';
+    return;
+  }
   if(state.view==="dashboard") renderDashboard();
   else if(state.view==="bookings") renderBookings();
   else if(state.view==="report") renderReport();
@@ -692,8 +805,60 @@ function renderAll(){
 }
 
 /* ---------- init ---------- */
-load();
-renderAll();
+var authInstance = null;
+var firestoreStarted = false;
+
+function showAuthScreen(errMsg){
+  document.getElementById("authScreen").style.display = "flex";
+  document.getElementById("appRoot").style.display = "none";
+  if(errMsg) document.getElementById("authErr").innerHTML = '<div class="err-box" style="text-align:left;">⚠ '+esc(errMsg)+'</div>';
+}
+function showApp(){
+  document.getElementById("authScreen").style.display = "none";
+  document.getElementById("appRoot").style.display = "block";
+  if(!firestoreStarted){
+    firestoreStarted = true;
+    renderAll();
+    initFirestore();
+  }
+}
+
+function initAuth(){
+  try{
+    if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(window.__firebaseConfig); }
+    authInstance = firebase.auth();
+    authInstance.onAuthStateChanged(function(user){
+      if(user) showApp();
+      else showAuthScreen();
+    });
+  }catch(e){
+    console.error("Auth init failed:", e);
+    showAuthScreen("Couldn't reach the sign-in service. Check your internet connection.");
+  }
+}
+
+document.getElementById("authSubmit").addEventListener("click", function(){
+  var email = document.getElementById("authEmail").value.trim();
+  var pw = document.getElementById("authPassword").value;
+  document.getElementById("authErr").innerHTML = "";
+  if(!email || !pw){ document.getElementById("authErr").innerHTML = '<div class="err-box" style="text-align:left;">⚠ Enter both email and password.</div>'; return; }
+  var btn = document.getElementById("authSubmit");
+  btn.disabled = true; btn.textContent = "Signing in…";
+  authInstance.signInWithEmailAndPassword(email, pw).catch(function(err){
+    btn.disabled = false; btn.textContent = "Sign In";
+    var msg = "Sign-in failed. Check your email and password.";
+    if(err && err.code === "auth/too-many-requests") msg = "Too many attempts. Try again in a few minutes.";
+    document.getElementById("authErr").innerHTML = '<div class="err-box" style="text-align:left;">⚠ '+esc(msg)+'</div>';
+  });
+});
+document.getElementById("authPassword").addEventListener("keydown", function(e){
+  if(e.key === "Enter") document.getElementById("authSubmit").click();
+});
+document.getElementById("signOutBtn").addEventListener("click", function(){
+  if(authInstance) authInstance.signOut();
+});
+
+initAuth();
 
 if("serviceWorker" in navigator){
   window.addEventListener("load", function(){
