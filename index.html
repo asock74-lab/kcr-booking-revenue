@@ -235,10 +235,14 @@ function downloadBlob(content, filename, mime){
 function bookingsToCSV(rows){
   var headers = ["Date","Guest Name","Mobile","Location","Check-in","Check-out","Nights","Room Type","Amount","Reference","Remarks"];
   var lines = [headers.join(",")];
+  var totalAmount = 0, totalNights = 0;
   rows.forEach(function(b){
+    var n = nightsBetween(b.checkIn,b.checkOut);
+    totalAmount += b.amount; totalNights += n;
     lines.push([b.bookingDate,b.guestName,b.mobile,b.location,b.checkIn,b.checkOut,
-      nightsBetween(b.checkIn,b.checkOut),b.roomType,b.amount,b.reference,b.remarks||""].map(csvEscape).join(","));
+      n,b.roomType,b.amount,b.reference,b.remarks||""].map(csvEscape).join(","));
   });
+  lines.push(["","","","","","",totalNights,"TOTAL",totalAmount,"",""].map(csvEscape).join(","));
   return lines.join("\n");
 }
 
@@ -718,25 +722,34 @@ function renderReport(){
     var wb = XLSX.utils.book_new();
     var summaryRows = [
       ["KCR — Monthly Room Booking & Revenue Report"],["Month", monthLabel(state.selectedMonth)],[],
-      ["Total Bookings", stats.total],["Total Room Nights", stats.totalNights],["Total Revenue (₹)", stats.revenue],[],
-      ["Room Type","Bookings","Room Nights","Revenue (₹)"]
+      ["Total Bookings", stats.total],["Total Room Nights", stats.totalNights],["Total Revenue (Rs.)", stats.revenue],[],
+      ["Room Type","Bookings","Room Nights","Revenue (Rs.)"]
     ];
     byRoom.forEach(function(r){ summaryRows.push([r.name,r.bookings,r.nights,r.revenue]); });
-    summaryRows.push([]); summaryRows.push(["Reference","Bookings","Room Nights","Revenue (₹)"]);
+    summaryRows.push([]); summaryRows.push(["Reference","Bookings","Room Nights","Revenue (Rs.)"]);
     bySrc.forEach(function(r){ summaryRows.push([r.name,r.bookings,r.nights,r.revenue]); });
+    summaryRows.push([]); summaryRows.push(["", "", "TOTAL REVENUE (Rs.)", stats.revenue]);
     var summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
     XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
 
-    var dailySheet = XLSX.utils.json_to_sheet(daily.map(function(r){
-      return {Date:fmtDateShort(r.date), Bookings:r.bookings, "Room Nights":r.nights, "Pool Villa":r.villa, Executive:r.exec, "Revenue (₹)":r.revenue};
-    }));
+    var dailyTotals = daily.reduce(function(a,r){ return {bookings:a.bookings+r.bookings, nights:a.nights+r.nights, villa:a.villa+r.villa, exec:a.exec+r.exec, revenue:a.revenue+r.revenue}; }, {bookings:0,nights:0,villa:0,exec:0,revenue:0});
+    var dailyRows = daily.map(function(r){
+      return {Date:fmtDateShort(r.date), Bookings:r.bookings, "Room Nights":r.nights, "Pool Villa":r.villa, Executive:r.exec, "Revenue (Rs.)":r.revenue};
+    });
+    dailyRows.push({Date:"TOTAL", Bookings:dailyTotals.bookings, "Room Nights":dailyTotals.nights, "Pool Villa":dailyTotals.villa, Executive:dailyTotals.exec, "Revenue (Rs.)":dailyTotals.revenue});
+    var dailySheet = XLSX.utils.json_to_sheet(dailyRows);
     XLSX.utils.book_append_sheet(wb, dailySheet, "Daily Revenue");
 
-    var detailSheet = XLSX.utils.json_to_sheet(sorted.map(function(b){
+    var detailTotalAmount = sorted.reduce(function(a,b){ return a+b.amount; }, 0);
+    var detailTotalNights = sorted.reduce(function(a,b){ return a+nightsBetween(b.checkIn,b.checkOut); }, 0);
+    var detailRows = sorted.map(function(b){
       return {"Booking Date":fmtDateShort(b.bookingDate), Guest:b.guestName, Mobile:b.mobile, Location:b.location,
         "Check-in":fmtDateShort(b.checkIn), "Check-out":fmtDateShort(b.checkOut), Nights:nightsBetween(b.checkIn,b.checkOut),
-        "Room Type":b.roomType, "Amount (₹)":b.amount, Reference:b.reference, Remarks:b.remarks||""};
-    }));
+        "Room Type":b.roomType, "Amount (Rs.)":b.amount, Reference:b.reference, Remarks:b.remarks||""};
+    });
+    detailRows.push({"Booking Date":"", Guest:"", Mobile:"", Location:"", "Check-in":"", "Check-out":"",
+      Nights:detailTotalNights, "Room Type":"TOTAL", "Amount (Rs.)":detailTotalAmount, Reference:"", Remarks:""});
+    var detailSheet = XLSX.utils.json_to_sheet(detailRows);
     XLSX.utils.book_append_sheet(wb, detailSheet, "Booking Details");
     XLSX.writeFile(wb, "KCR-Monthly-Report-"+state.selectedMonth+".xlsx");
   });
