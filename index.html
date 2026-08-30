@@ -223,18 +223,19 @@ var COLORS = { gold:"#B8935B", teal:"#3F6D5C" };
 
 /* ---------- EmailJS (booking confirmation emails) ---------- */
 var EMAILJS_PUBLIC_KEY = "VwIg4N15oDc-HUxBP";
+var EMAILJS_PRIVATE_KEY = "wsanQ-HH8A1mGAMiJA-84";
 var EMAILJS_SERVICE_ID = "service_o9hoves";
 var EMAILJS_TEMPLATE_ID = "l4zeens";
 var emailjsReady = false;
-window.debugEmailJS = function(){ return {ready: emailjsReady, hasEmailjs: typeof emailjs, serviceId: EMAILJS_SERVICE_ID, templateId: EMAILJS_TEMPLATE_ID}; };
 function initEmailJS(){
   try{
     if(typeof emailjs !== "undefined"){
-      emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY, privateKey:"wsanQ-HH8A1mGAMiJA-84" });
+      emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY, privateKey: EMAILJS_PRIVATE_KEY });
       emailjsReady = true;
     }
   }catch(e){ console.error("EmailJS init failed:", e); }
 }
+window.debugEmailJS = function(){ return {ready: emailjsReady, hasEmailjs: typeof emailjs, serviceId: EMAILJS_SERVICE_ID, templateId: EMAILJS_TEMPLATE_ID}; };
 function sendBookingConfirmationEmail(booking){
   if(!emailjsReady || typeof emailjs === "undefined") return;
   if(!booking.guestEmail) return;
@@ -248,26 +249,7 @@ function sendBookingConfirmationEmail(booking){
     total_amount: fmtINR(totalInclGst(booking)),
     deposit_status: booking.paymentMethod || "Pending"
   };
-  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params, { publicKey: EMAILJS_PUBLIC_KEY, privateKey: "wsanQ-HH8A1mGAMiJA-84" }).then(function(){
-    showToast("Booking saved — confirmation email sent.");
-  }).catch(function(err){
-    console.error("EmailJS send failed:", err);
-    showToast("Booking saved — email failed to send. Please follow up manually.", true);
-  });
-}
-  if(!emailjsReady || typeof emailjs === "undefined") return;
-  if(!booking.guestEmail) return;
-  var params = {
-    guest_name: booking.guestName,
-    guest_email: booking.guestEmail,
-    room_type: booking.roomType,
-    checkin_date: fmtDateShort(booking.checkIn),
-    checkout_date: fmtDateShort(booking.checkOut),
-    rate: fmtINR(booking.amount),
-    total_amount: fmtINR(totalInclGst(booking)),
-    deposit_status: booking.paymentMethod || "Pending"
-  };
-  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params,{publickey: EMAILJS_PUBLICKEY, privatekey: "wsanQ-HH8A1GAMiJA-84"})then(function(){
+  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params, { publicKey: EMAILJS_PUBLIC_KEY, privateKey: EMAILJS_PRIVATE_KEY }).then(function(){
     showToast("Booking saved — confirmation email sent.");
   }).catch(function(err){
     console.error("EmailJS send failed:", err);
