@@ -729,6 +729,8 @@ function openBookingModal(booking){
 
   document.getElementById("modalRoot").innerHTML = html;
 
+  var gstManuallySet = !!booking; /* once editing an existing booking, never silently override its saved GST choice */
+
   function updateNights(){
     var ci = document.getElementById("f_checkIn").value, co = document.getElementById("f_checkOut").value;
     var n = ci && co ? nightsBetween(ci,co) : 0;
@@ -741,20 +743,16 @@ function openBookingModal(booking){
     document.getElementById("totalDisplay").textContent = fmtINR(totalInclGst({amount:amt, gstRate:rate}));
   }
   function autoSuggestGst(){
+    if(gstManuallySet) return;
     var amt = Number(document.getElementById("f_amount").value) || 0;
     var n = updateNights();
     var suggested = suggestGstRate(amt, n||1);
     document.getElementById("f_gstRate").value = String(suggested);
-    updateTotal();
   }
-  document.getElementById("f_checkIn").addEventListener("change", function(){ updateNights(); updateTotal(); });
-  document.getElementById("f_checkOut").addEventListener("change", function(){ updateNights(); updateTotal(); });
-  document.getElementById("f_amount").addEventListener("input", updateTotal);
-  document.getElementById("f_gstRate").addEventListener("change", updateTotal);
-  var suggestBtnNote = document.getElementById("gstHint");
-  document.getElementById("f_amount").addEventListener("blur", function(){
-    if(!booking) autoSuggestGst(); /* only auto-adjust the suggestion for brand-new bookings, never silently override an edit */
-  });
+  document.getElementById("f_checkIn").addEventListener("change", function(){ updateNights(); autoSuggestGst(); updateTotal(); });
+  document.getElementById("f_checkOut").addEventListener("change", function(){ updateNights(); autoSuggestGst(); updateTotal(); });
+  document.getElementById("f_amount").addEventListener("input", function(){ autoSuggestGst(); updateTotal(); });
+  document.getElementById("f_gstRate").addEventListener("change", function(){ gstManuallySet = true; updateTotal(); });
 
   document.getElementById("modalBg").addEventListener("click", function(e){ if(e.target.id==="modalBg") closeModal(); });
   document.getElementById("modalClose").addEventListener("click", closeModal);
