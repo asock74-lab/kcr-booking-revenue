@@ -187,6 +187,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script>
 window.__firebaseConfig = {
   apiKey: "AIzaSyATu8WowqRfBtte_naHiU67sDGwyXC5WBI",
@@ -219,6 +220,49 @@ var GST_RATES = [0, 5, 12, 18]; /* available GST% choices */
 var GST_THRESHOLD_PER_NIGHT = 7500; /* per current Indian hotel GST rules: <=7500/night avg -> 5%, above -> 18% */
 var STORAGE_KEY = "kcr-booking-revenue-v1";
 var COLORS = { gold:"#B8935B", teal:"#3F6D5C" };
+
+/* ---------- EmailJS (booking confirmation emails) ---------- */
+var EMAILJS_PUBLIC_KEY = "VwIg4N15oDc-HUxBP";
+var EMAILJS_SERVICE_ID = "service_o9hoves";
+var EMAILJS_TEMPLATE_ID = "c8z1388";
+var emailjsReady = false;
+function initEmailJS(){
+  try{
+    if(typeof emailjs !== "undefined"){
+      emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+      emailjsReady = true;
+    }
+  }catch(e){ console.error("EmailJS init failed:", e); }
+}
+function sendBookingConfirmationEmail(booking){
+  if(!emailjsReady || typeof emailjs === "undefined") return;
+  if(!booking.guestEmail) return;
+  var params = {
+    guest_name: booking.guestName,
+    guest_email: booking.guestEmail,
+    room_type: booking.roomType,
+    checkin_date: fmtDateShort(booking.checkIn),
+    checkout_date: fmtDateShort(booking.checkOut),
+    rate: fmtINR(booking.amount),
+    total_amount: fmtINR(totalInclGst(booking)),
+    deposit_status: booking.paymentMethod || "Pending"
+  };
+  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params).then(function(){
+    showToast("Booking saved — confirmation email sent.");
+  }).catch(function(err){
+    console.error("EmailJS send failed:", err);
+    showToast("Booking saved — email failed to send. Please follow up manually.", true);
+  });
+}
+function showToast(msg, isError){
+  var el = document.createElement("div");
+  el.textContent = msg;
+  el.style.cssText = "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;"+
+    "background:"+(isError?"#A3492F":"#3F6D5C")+";color:#fff;padding:10px 18px;border-radius:8px;"+
+    "font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.2);max-width:90vw;text-align:center;";
+  document.body.appendChild(el);
+  setTimeout(function(){ el.style.transition="opacity .4s"; el.style.opacity="0"; setTimeout(function(){ el.remove(); }, 400); }, 3200);
+}
 
 /* ---------- helpers ---------- */
 function uid(){ return (crypto && crypto.randomUUID) ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2); }
@@ -386,12 +430,14 @@ function seedSampleData(){
   batch.commit().catch(function(e){ console.error("Seed failed:", e); });
 }
 
-function saveBooking(booking){
+function saveBooking(booking, isNewBooking){
   if(!bookingsCol) return;
   var batch = db.batch();
   batch.set(bookingsCol.doc(booking.id), booking);
   batch.set(availabilityCol.doc(booking.id), availabilityDoc(booking));
-  batch.commit().catch(function(e){
+  batch.commit().then(function(){
+    if(isNewBooking){ sendBookingConfirmationEmail(booking); }
+  }).catch(function(e){
     console.error("Save failed:", e);
     alert("Couldn't save — check your internet connection and try again.");
   });
@@ -908,7 +954,7 @@ function openBookingModal(booking){
     else if(idNumberVal && !idTypeVal) err = "Select an ID type to go with the ID number.";
     if(err){ document.getElementById("modalErr").innerHTML = '<div class="err-box">⚠ '+err+'</div>'; return; }
 
-    saveBooking(form);
+    saveBooking(form, !booking);
     closeModal();
   });
 }
@@ -1402,6 +1448,7 @@ document.getElementById("signOutBtn").addEventListener("click", function(){
 });
 
 initAuth();
+initEmailJS();
 
 if("serviceWorker" in navigator){
   window.addEventListener("load", function(){
