@@ -205,6 +205,8 @@ window.__firebaseConfig = {
 var ROOM_TYPES = ["Pool Villa", "Executive"];
 var REFERENCES = ["Walk-in", "OTA", "Agent", "Direct", "Phone", "Website", "Other"];
 var PAYMENT_METHODS = ["Cash", "UPI", "Card", "Bank Transfer", "Other"];
+var EXPENSE_CATEGORIES = ["Salary / Wages", "Electricity (EB)", "Water", "Laundry", "Maintenance & Repairs",
+  "Housekeeping & Kitchen Supplies", "Internet & Phone", "Marketing / OTA Commission", "Insurance", "Miscellaneous / Other"];
 var ID_TYPES = ["Aadhar", "Driving Licence", "Passport", "Voter ID", "Other"];
 var OWNER_EMAIL = "mrasock@kcr.local";
 var BUSINESS_NAME = "KCR Hospitality Services";
@@ -301,6 +303,7 @@ function makeSampleData(){
 /* ---------- state ---------- */
 var state = {
   bookings: [],
+  expenses: [],
   view: "dashboard",
   selectedMonth: todayISO().slice(0,7),
   editing: null,
@@ -311,7 +314,9 @@ var state = {
 var db = null;
 var bookingsCol = null;
 var availabilityCol = null;
+var expensesCol = null;
 var firstSnapshotReceived = false;
+var firstExpenseSnapshotReceived = false;
 
 function initFirestore(){
   try{
@@ -320,6 +325,7 @@ function initFirestore(){
     try{ db.enablePersistence({synchronizeTabs:true}).catch(function(){}); }catch(e){}
     bookingsCol = db.collection("bookings");
     availabilityCol = db.collection("availability");
+    expensesCol = db.collection("expenses");
 
     bookingsCol.onSnapshot(function(snapshot){
       var rows = [];
@@ -340,6 +346,20 @@ function initFirestore(){
       state.syncStatus = "offline";
       firstSnapshotReceived = true;
       renderAll();
+    });
+
+    expensesCol.onSnapshot(function(snapshot){
+      var rows = [];
+      snapshot.forEach(function(doc){ rows.push(doc.data()); });
+      state.expenses = rows;
+      if(!firstExpenseSnapshotReceived){
+        firstExpenseSnapshotReceived = true;
+        if(rows.length === 0){ seedSampleExpenses(); }
+      }
+      renderAll();
+    }, function(err){
+      console.error("Expenses sync error:", err);
+      firstExpenseSnapshotReceived = true;
     });
   }catch(e){
     console.error("Firebase init failed:", e);
@@ -400,6 +420,63 @@ function deleteBookingsWhere(predicate){
 function addSampleData(){
   if(!bookingsCol) return;
   seedSampleData();
+}
+
+/* ---------- expenses ---------- */
+function makeSampleExpenses(){
+  var rows = [
+    ["2026-08-01","Salary / Wages","Front desk & housekeeping staff salary",28000,"Bank Transfer"],
+    ["2026-08-03","Electricity (EB)","Monthly EB bill",6200,"UPI"],
+    ["2026-08-05","Water","Water tanker delivery",1500,"Cash"],
+    ["2026-08-07","Laundry","Linen & towel laundry service",2400,"Cash"],
+    ["2026-08-09","Housekeeping & Kitchen Supplies","Cleaning supplies & kitchen groceries",3800,"UPI"],
+    ["2026-08-12","Maintenance & Repairs","AC servicing, Executive Room 2",2200,"Cash"],
+    ["2026-08-14","Internet & Phone","Monthly broadband & phone bill",1400,"UPI"],
+    ["2026-08-16","Marketing / OTA Commission","OTA commission for August bookings",5400,"Bank Transfer"],
+    ["2026-08-18","Laundry","Linen & towel laundry service",2100,"Cash"],
+    ["2026-08-21","Housekeeping & Kitchen Supplies","Toiletries restock",1900,"Card"],
+    ["2026-08-24","Maintenance & Repairs","Plumbing repair, Pool Villa",3200,"Cash"],
+    ["2026-08-28","Insurance","Property insurance premium (quarterly)",9000,"Bank Transfer"]
+  ];
+  return rows.map(function(r){
+    return {id:uid(), date:r[0], category:r[1], description:r[2], amount:r[3], paymentMethod:r[4], isSample:true};
+  });
+}
+function seedSampleExpenses(){
+  if(!expensesCol) return;
+  var samples = makeSampleExpenses();
+  var batch = db.batch();
+  samples.forEach(function(e){ batch.set(expensesCol.doc(e.id), e); });
+  batch.commit().catch(function(err){ console.error("Expense seed failed:", err); });
+}
+function addSampleExpenses(){
+  if(!expensesCol) return;
+  seedSampleExpenses();
+}
+function saveExpense(expense){
+  if(!expensesCol) return;
+  expensesCol.doc(expense.id).set(expense).catch(function(e){
+    console.error("Expense save failed:", e);
+    alert("Couldn't save — check your internet connection and try again.");
+  });
+}
+function deleteExpense(id){
+  if(!expensesCol) return;
+  expensesCol.doc(id).delete().catch(function(e){
+    console.error("Expense delete failed:", e);
+    alert("Couldn't delete — check your internet connection and try again.");
+  });
+}
+function deleteExpensesWhere(predicate){
+  if(!expensesCol) return;
+  var toDelete = state.expenses.filter(predicate);
+  if(toDelete.length === 0) return;
+  var batch = db.batch();
+  toDelete.forEach(function(e){ batch.delete(expensesCol.doc(e.id)); });
+  batch.commit().catch(function(err){ console.error("Expense batch delete failed:", err); });
+}
+function monthExpenses(){
+  return state.expenses.filter(function(e){ return (e.date||"").slice(0,7) === state.selectedMonth; });
 }
 
 /* ---------- roles ---------- */
@@ -494,6 +571,7 @@ function tableTotals(rows){
 var NAV = [
   {key:"dashboard", label:"Dashboard", svg:'<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>'},
   {key:"bookings", label:"Bookings", svg:'<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>'},
+  {key:"expenses", label:"Expenses", svg:'<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5a2.5 2.5 0 0 1 2.5-2.5h1a2.2 2.2 0 0 1 0 4.4h-1a2.2 2.2 0 0 0 0 4.4h1a2.5 2.5 0 0 0 2.5-2.5"/></svg>'},
   {key:"report", label:"Monthly Report", svg:'<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h8l6 6v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M14 3v6h6"/></svg>'},
   {key:"settings", label:"Settings", svg:'<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg>'}
 ];
@@ -558,6 +636,20 @@ function renderDashboard(){
 
   html += '<div class="revenue-panel"><div class="eyebrow">Total Revenue — '+monthLabel(state.selectedMonth)+'</div>'+
     '<div class="amt">'+fmtINR(stats.revenue)+'</div></div>';
+
+  var monthExp = monthExpenses();
+  var monthExpTotal = monthExp.reduce(function(a,e){ return a+(e.amount||0); }, 0);
+  var netProfit = stats.revenue - monthExpTotal;
+  html += '<div class="grid-2" style="margin-bottom:16px;">'+
+    '<div class="card" style="padding:16px 18px;border-left:3px solid var(--rust);">'+
+      '<div class="eyebrow">Total Expenses — '+monthLabel(state.selectedMonth)+'</div>'+
+      '<div style="font-family:var(--serif);font-size:24px;font-weight:700;color:var(--rust);margin-top:4px;">'+fmtINR(monthExpTotal)+'</div>'+
+    '</div>'+
+    '<div class="card" style="padding:16px 18px;border-left:3px solid '+(netProfit>=0?"var(--teal)":"var(--rust)")+';">'+
+      '<div class="eyebrow">Net Profit — '+monthLabel(state.selectedMonth)+'</div>'+
+      '<div style="font-family:var(--serif);font-size:24px;font-weight:700;color:'+(netProfit>=0?"var(--teal)":"var(--rust)")+';margin-top:4px;">'+fmtINR(netProfit)+'</div>'+
+    '</div>'+
+    '</div>';
 
   html += '<div class="grid-2">'+
     '<div class="card panel"><div class="panel-title">Revenue by Booking Source</div>'+
@@ -836,7 +928,7 @@ function openReceiptModal(b){
     '<div class="modal-head no-print"><h3>Receipt Preview</h3><button class="close-x" id="modalClose">✕</button></div>'+
     '<div id="receipt-print-area" style="background:#fff;padding:8px 4px;">'+
       '<div style="text-align:center;border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:16px;">'+
-        '<img src="./sidebar-mark.png" alt="Kings Court Resort" style="width:44px;height:44px;border-radius:10px;margin-bottom:8px;">'+
+        '<img src="./sidebar-mark.png" alt="Kings Court Resort" style="width:72px;height:72px;border-radius:14px;margin-bottom:10px;">'+
         '<div style="font-family:var(--serif);font-size:11px;letter-spacing:.2em;color:var(--gold-dark);font-weight:700;">KING\u2019S COURT RESORT</div>'+
         '<div style="font-family:var(--serif);font-size:18px;font-weight:700;margin-top:4px;">Payment Receipt</div>'+
         '<div style="font-size:10.5px;color:var(--muted);margin-top:4px;">'+esc(BUSINESS_NAME)+' · GSTIN: '+esc(GSTIN)+'</div>'+
@@ -888,6 +980,134 @@ function openReceiptModal(b){
 }
 
 
+/* ---------- expenses view ---------- */
+var expensesFilter = {search:"", month:"", category:""};
+
+function filteredExpenses(){
+  return state.expenses.filter(function(e){
+    if(expensesFilter.search){
+      var s = expensesFilter.search.toLowerCase();
+      if((e.description||"").toLowerCase().indexOf(s)===-1 && (e.category||"").toLowerCase().indexOf(s)===-1) return false;
+    }
+    if(expensesFilter.month && (e.date||"").slice(0,7)!==expensesFilter.month) return false;
+    if(expensesFilter.category && e.category!==expensesFilter.category) return false;
+    return true;
+  }).sort(function(a,b){ return a.date < b.date ? 1 : -1; });
+}
+
+function renderExpenses(){
+  var rows = filteredExpenses();
+  var catOpts = EXPENSE_CATEGORIES.map(function(c){ return '<option value="'+c+'"'+(expensesFilter.category===c?' selected':'')+'>'+c+'</option>'; }).join("");
+  var sampleCount = state.expenses.filter(function(e){ return e.isSample; }).length;
+
+  var totalAmount = rows.reduce(function(a,e){ return a+(e.amount||0); }, 0);
+
+  var html = '<div class="page-header" style="margin-bottom:14px;">'+
+    '<div class="page-title" style="font-size:20px;">Expenses</div>'+
+    '<button class="btn btn-gold" id="addExpenseBtn">+ Add Expense</button></div>';
+
+  html += '<div class="card toolbar" style="padding:14px;">'+
+    '<div class="search-wrap"><span class="search-icon">🔍</span><input class="input" id="expSearchInput" placeholder="Search category or description…" value="'+esc(expensesFilter.search)+'"></div>'+
+    '<input type="month" class="input" id="expMonthFilter" style="width:150px;" value="'+expensesFilter.month+'">'+
+    '<select class="input" id="expCategoryFilter" style="width:220px;"><option value="">All Categories</option>'+catOpts+'</select>'+
+    (expensesFilter.search||expensesFilter.month||expensesFilter.category ? '<button class="btn btn-ghost" id="expClearFilters">✕ Clear</button>':'')+
+    '</div>';
+
+  html += '<div class="revenue-panel" style="background:var(--rust);margin-bottom:16px;"><div class="eyebrow" style="color:#F4E6E0;">Total — '+
+    (rows.length===state.expenses.length ? "All Expenses" : "Filtered")+'</div><div class="amt">'+fmtINR(totalAmount)+'</div></div>';
+
+  var body = rows.length===0
+    ? '<tr class="empty-row"><td colspan="6">No expenses match these filters.</td></tr>'
+    : rows.map(function(e){
+        return '<tr><td>'+fmtDateShort(e.date)+'</td>'+
+          '<td style="font-weight:600;">'+esc(e.category)+(e.isSample?'<span class="badge">SAMPLE</span>':'')+'</td>'+
+          '<td>'+esc(e.description||"—")+'</td>'+
+          '<td>'+esc(e.paymentMethod||"—")+'</td>'+
+          '<td class="num">'+fmtINR(e.amount)+'</td>'+
+          '<td style="white-space:nowrap;">'+
+            (canEdit(e) ? '<button class="btn-ghost" style="border:none;background:none;cursor:pointer;" data-exp-edit="'+e.id+'">✏️</button> '
+                        : '<span title="More than 24h old — only the owner can edit" style="opacity:.35;">🔒</span> ')+
+            (canDelete() ? '<button style="border:none;background:none;cursor:pointer;color:var(--rust);" data-exp-del="'+e.id+'">🗑️</button>' : '')+
+          '</td></tr>';
+      }).join("");
+
+  html += '<div class="card"><div class="table-wrap"><table style="min-width:760px;"><thead><tr>'+
+    ["Date","Category","Description","Payment Method","Amount",""].map(function(h){return '<th>'+h+'</th>';}).join("")+
+    '</tr></thead><tbody>'+body+'</tbody></table></div></div>';
+
+  document.getElementById("view").innerHTML = html;
+
+  document.getElementById("addExpenseBtn").addEventListener("click", function(){ openExpenseModal(null); });
+  document.getElementById("expSearchInput").addEventListener("input", function(e){ expensesFilter.search=e.target.value; renderExpenses(); });
+  document.getElementById("expMonthFilter").addEventListener("change", function(e){ expensesFilter.month=e.target.value; renderExpenses(); });
+  document.getElementById("expCategoryFilter").addEventListener("change", function(e){ expensesFilter.category=e.target.value; renderExpenses(); });
+  var ecf = document.getElementById("expClearFilters");
+  if(ecf) ecf.addEventListener("click", function(){ expensesFilter={search:"",month:"",category:""}; renderExpenses(); });
+  document.querySelectorAll("[data-exp-edit]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var e = state.expenses.find(function(x){ return x.id===btn.getAttribute("data-exp-edit"); });
+      openExpenseModal(e);
+    });
+  });
+  document.querySelectorAll("[data-exp-del]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      if(confirm("Delete this expense? This cannot be undone.")){
+        deleteExpense(btn.getAttribute("data-exp-del"));
+      }
+    });
+  });
+}
+
+function openExpenseModal(expense){
+  var f = expense || {date:todayISO(), category:EXPENSE_CATEGORIES[0], description:"", amount:"", paymentMethod:PAYMENT_METHODS[0]};
+  var catOpts = EXPENSE_CATEGORIES.map(function(c){ return '<option value="'+c+'"'+(f.category===c?' selected':'')+'>'+c+'</option>'; }).join("");
+  var payOpts = PAYMENT_METHODS.map(function(p){ return '<option value="'+p+'"'+((f.paymentMethod||PAYMENT_METHODS[0])===p?' selected':'')+'>'+p+'</option>'; }).join("");
+
+  var html = '<div class="modal-bg" id="modalBg"><div class="modal">'+
+    '<div class="modal-head"><h3>'+(expense?"Edit Expense":"Add Expense")+'</h3><button class="close-x" id="modalClose">✕</button></div>'+
+    '<div id="modalErr"></div>'+
+    '<div class="form-grid">'+
+      field("Date", '<input type="date" class="input" id="f_expDate" value="'+f.date+'">')+
+      field("Category", '<select class="input" id="f_expCategory">'+catOpts+'</select>')+
+      field("Amount (₹)", '<input type="number" min="0" class="input" id="f_expAmount" value="'+f.amount+'" placeholder="0">')+
+      field("Payment Method", '<select class="input" id="f_expPaymentMethod">'+payOpts+'</select>')+
+    '</div>'+
+    field("Description (optional)", '<input class="input" id="f_expDescription" value="'+esc(f.description||"")+'" placeholder="e.g. Vendor name, invoice ref">')+
+    '<div class="modal-actions"><button class="btn btn-outline" id="modalCancel">Cancel</button>'+
+    '<button class="btn btn-gold" id="modalSave">'+(expense?"Save Changes":"Add Expense")+'</button></div>'+
+    '</div></div>';
+
+  document.getElementById("modalRoot").innerHTML = html;
+  document.getElementById("modalBg").addEventListener("click", function(e){ if(e.target.id==="modalBg") closeModal(); });
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("modalCancel").addEventListener("click", closeModal);
+  document.getElementById("modalSave").addEventListener("click", function(){
+    if(expense && !canEdit(expense)){
+      document.getElementById("modalErr").innerHTML = '<div class="err-box">⚠ This expense is more than 24 hours old — only the owner can edit it now.</div>';
+      return;
+    }
+    var form = {
+      id: expense ? expense.id : uid(),
+      date: document.getElementById("f_expDate").value,
+      category: document.getElementById("f_expCategory").value,
+      amount: Number(document.getElementById("f_expAmount").value),
+      paymentMethod: document.getElementById("f_expPaymentMethod").value,
+      description: document.getElementById("f_expDescription").value.trim(),
+      isSample: expense ? expense.isSample : false,
+      createdAt: expense ? (expense.createdAt || firebase.firestore.FieldValue.serverTimestamp()) : firebase.firestore.FieldValue.serverTimestamp()
+    };
+    var err = "";
+    if(!form.date) err = "Enter a date.";
+    else if(!form.category) err = "Select a category.";
+    else if(!document.getElementById("f_expAmount").value || isNaN(form.amount) || form.amount<0) err = "Enter a valid amount.";
+    if(err){ document.getElementById("modalErr").innerHTML = '<div class="err-box">⚠ '+err+'</div>'; return; }
+
+    saveExpense(form);
+    closeModal();
+  });
+}
+
+
 /* ---------- monthly report view ---------- */
 function renderReport(){
   var list = monthBookings();
@@ -909,11 +1129,15 @@ function renderReport(){
 
   var monthGst = list.reduce(function(a,b){ return a+gstAmountFor(b); }, 0);
   var monthTotalWithGst = stats.revenue + monthGst;
+  var expList = monthExpenses();
+  var expTotal = expList.reduce(function(a,e){ return a+(e.amount||0); }, 0);
+  var netProfitReport = stats.revenue - expTotal;
 
   html += reportSection("A","Overall Summary", '<div class="stat-inline">'+
     reportStat("Total Bookings", stats.total)+reportStat("Total Room Nights", stats.totalNights)+
     reportStat("Revenue (excl. GST)", fmtINR(stats.revenue))+reportStat("GST Collected", fmtINR(monthGst))+
-    reportStat("Total incl. GST", fmtINR(monthTotalWithGst))+'</div>');
+    reportStat("Total incl. GST", fmtINR(monthTotalWithGst))+
+    reportStat("Total Expenses", fmtINR(expTotal))+reportStat("Net Profit", fmtINR(netProfitReport))+'</div>');
 
   html += reportSection("B","Room Type Performance", roomTableHTML(byRoom, tableTotals(byRoom)));
   html += reportSection("C","Booking Source Performance", sourceTableHTML(bySrc, tableTotals(bySrc)));
@@ -936,6 +1160,22 @@ function renderReport(){
     ["Date","Guest","Mobile","Location","Check-in","Check-out","Nights","Room","Guests","Base Amt","GST","Total","Ref"].map(function(h){return '<th>'+h+'</th>';}).join("")+
     '</tr></thead><tbody>'+detailBody+'</tbody></table></div>');
 
+  var expByCat = {};
+  EXPENSE_CATEGORIES.forEach(function(c){ expByCat[c] = 0; });
+  expList.forEach(function(e){ expByCat[e.category] = (expByCat[e.category]||0) + (e.amount||0); });
+  var expCatBody = EXPENSE_CATEGORIES.filter(function(c){ return expByCat[c]>0; }).map(function(c){
+    return '<tr><td>'+esc(c)+'</td><td class="num">'+fmtINR(expByCat[c])+'</td></tr>';
+  }).join("");
+  html += reportSection("F","Expense Summary by Category", expList.length===0
+    ? '<div style="font-size:13px;color:var(--muted);">No expenses recorded this month.</div>'
+    : '<div class="table-wrap"><table><thead><tr><th>Category</th><th>Amount</th></tr></thead><tbody>'+expCatBody+
+      '</tbody><tfoot><tr><td>Total</td><td class="num" style="color:var(--rust);">'+fmtINR(expTotal)+'</td></tr></tfoot></table></div>');
+
+  html += reportSection("G","Net Profit Summary", '<div class="stat-inline">'+
+    reportStat("Revenue (excl. GST)", fmtINR(stats.revenue))+
+    reportStat("Total Expenses", fmtINR(expTotal))+
+    reportStat("Net Profit", fmtINR(netProfitReport))+'</div>');
+
   html += '<div class="report-foot">'+esc(BUSINESS_PHONE)+' · '+esc(BUSINESS_WEBSITE)+' · '+esc(BUSINESS_EMAIL)+'<br>Generated by KCR Monthly Room Booking &amp; Revenue Report tool · For internal management use · GST rates should be verified with your accountant</div>';
   html += '</div>';
 
@@ -950,11 +1190,15 @@ function renderReport(){
     var wb = XLSX.utils.book_new();
     var monthGst = list.reduce(function(a,b){ return a+gstAmountFor(b); }, 0);
     var monthTotalWithGst = stats.revenue + monthGst;
+    var expListXl = monthExpenses();
+    var expTotalXl = expListXl.reduce(function(a,e){ return a+(e.amount||0); }, 0);
+    var netProfitXl = stats.revenue - expTotalXl;
     var summaryRows = [
       ["KCR — Monthly Room Booking & Revenue Report"],["Month", monthLabel(state.selectedMonth)],[],
       ["Total Bookings", stats.total],["Total Room Nights", stats.totalNights],
       ["Total Revenue (Rs., before GST)", stats.revenue],["Total GST Collected (Rs.)", monthGst],
-      ["Total incl. GST (Rs.)", monthTotalWithGst],[],
+      ["Total incl. GST (Rs.)", monthTotalWithGst],
+      ["Total Expenses (Rs.)", expTotalXl],["Net Profit (Rs.)", netProfitXl],[],
       ["Room Type","Bookings","Room Nights","Revenue (Rs.)"]
     ];
     byRoom.forEach(function(r){ summaryRows.push([r.name,r.bookings,r.nights,r.revenue]); });
@@ -963,6 +1207,8 @@ function renderReport(){
     summaryRows.push([]); summaryRows.push(["", "", "TOTAL REVENUE (Rs.)", stats.revenue]);
     summaryRows.push(["", "", "TOTAL GST (Rs.)", monthGst]);
     summaryRows.push(["", "", "GRAND TOTAL incl. GST (Rs.)", monthTotalWithGst]);
+    summaryRows.push(["", "", "TOTAL EXPENSES (Rs.)", expTotalXl]);
+    summaryRows.push(["", "", "NET PROFIT (Rs.)", netProfitXl]);
     var summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
     XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
 
@@ -993,6 +1239,16 @@ function renderReport(){
       Reference:"", Remarks:""});
     var detailSheet = XLSX.utils.json_to_sheet(detailRows);
     XLSX.utils.book_append_sheet(wb, detailSheet, "Booking Details");
+
+    var expTotalRowAmt = expListXl.reduce(function(a,e){ return a+(e.amount||0); }, 0);
+    var expSortedXl = expListXl.slice().sort(function(a,b){ return a.date < b.date ? 1 : -1; });
+    var expRows = expSortedXl.map(function(e){
+      return {Date:fmtDateShort(e.date), Category:e.category, Description:e.description||"", "Payment Method":e.paymentMethod||"", "Amount (Rs.)":e.amount};
+    });
+    expRows.push({Date:"", Category:"TOTAL", Description:"", "Payment Method":"", "Amount (Rs.)":expTotalRowAmt});
+    var expSheet = XLSX.utils.json_to_sheet(expRows);
+    XLSX.utils.book_append_sheet(wb, expSheet, "Expenses");
+
     XLSX.writeFile(wb, "KCR-Monthly-Report-"+state.selectedMonth+".xlsx");
   });
 }
@@ -1006,28 +1262,33 @@ function reportStat(label, val){
 /* ---------- settings view ---------- */
 function renderSettings(){
   var sampleCount = state.bookings.filter(function(b){ return b.isSample; }).length;
+  var sampleExpenseCount = state.expenses.filter(function(e){ return e.isSample; }).length;
   var owner = isOwner();
   var html = '<div style="max-width:620px;">'+
     '<div class="page-title" style="font-size:20px;margin-bottom:14px;">Settings</div>'+
     '<div class="card" style="padding:18px;margin-bottom:14px;"><div class="eyebrow">Data Storage</div>'+
-    '<div style="font-size:13px;margin-top:8px;line-height:1.5;">'+state.bookings.length+' booking record(s) in the shared cloud database'+
-    (sampleCount>0 ? ' ('+sampleCount+' marked as sample data)':'')+'. '+
+    '<div style="font-size:13px;margin-top:8px;line-height:1.5;">'+state.bookings.length+' booking record(s)'+
+    (sampleCount>0 ? ' ('+sampleCount+' sample)':'')+' and '+state.expenses.length+' expense record(s)'+
+    (sampleExpenseCount>0 ? ' ('+sampleExpenseCount+' sample)':'')+' in the shared cloud database. '+
     'Records sync automatically across every device that opens this app.</div></div>'+
 
     '<div class="card" style="padding:18px;margin-bottom:14px;"><div class="eyebrow">Account</div>'+
     '<div style="font-size:13px;margin-top:8px;">Signed in as <strong>'+(owner?"Owner":"Staff")+'</strong> ('+esc((authInstance&&authInstance.currentUser&&authInstance.currentUser.email)||"")+')'+
-    (owner ? '' : '<div style="color:var(--muted);margin-top:4px;">Staff can add bookings and edit them for 24 hours. Deleting, removing sample data, and clearing all data are owner-only.</div>')+
+    (owner ? '' : '<div style="color:var(--muted);margin-top:4px;">Staff can add bookings/expenses and edit them for 24 hours. Deleting, removing sample data, and clearing all data are owner-only.</div>')+
     '</div></div>'+
 
     '<div class="card" style="padding:18px;margin-bottom:14px;"><div class="eyebrow">Sample Data</div>'+
-    '<div style="font-size:13px;color:var(--muted);margin:8px 0 12px;">Load sample bookings to try the dashboard, or remove them once you start entering real data. This affects every device.</div>'+
-    '<div style="display:flex;gap:10px;"><button class="btn btn-outline" id="loadSampleBtn">Load Sample Data</button>'+
-    (owner && sampleCount>0 ? '<button class="btn btn-outline" id="removeSampleBtn">🗑 Remove Sample Data ('+sampleCount+')</button>' : '')+
+    '<div style="font-size:13px;color:var(--muted);margin:8px 0 12px;">Load sample bookings/expenses to try the dashboard, or remove them once you start entering real data. This affects every device.</div>'+
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;">'+
+    '<button class="btn btn-outline" id="loadSampleBtn">Load Sample Bookings</button>'+
+    (owner && sampleCount>0 ? '<button class="btn btn-outline" id="removeSampleBtn">🗑 Remove Sample Bookings ('+sampleCount+')</button>' : '')+
+    '<button class="btn btn-outline" id="loadSampleExpBtn">Load Sample Expenses</button>'+
+    (owner && sampleExpenseCount>0 ? '<button class="btn btn-outline" id="removeSampleExpBtn">🗑 Remove Sample Expenses ('+sampleExpenseCount+')</button>' : '')+
     '</div></div>'+
 
     (owner ?
       '<div class="card" style="padding:18px;border-color:#A3492F55;"><div class="eyebrow" style="color:var(--rust);">Danger Zone</div>'+
-      '<div style="font-size:13px;color:var(--muted);margin:8px 0 12px;">This permanently deletes every booking record from the shared database, on every device, including real data. This cannot be undone.</div>'+
+      '<div style="font-size:13px;color:var(--muted);margin:8px 0 12px;">This permanently deletes every booking AND expense record from the shared database, on every device, including real data. This cannot be undone.</div>'+
       '<div id="resetArea"><button class="btn btn-danger" id="resetBtn">↺ Clear All Data</button></div></div>'
       : '')+
     '</div>';
@@ -1040,6 +1301,13 @@ function renderSettings(){
   if(rm) rm.addEventListener("click", function(){
     deleteBookingsWhere(function(b){ return b.isSample; });
   });
+  document.getElementById("loadSampleExpBtn").addEventListener("click", function(){
+    addSampleExpenses();
+  });
+  var rme = document.getElementById("removeSampleExpBtn");
+  if(rme) rme.addEventListener("click", function(){
+    deleteExpensesWhere(function(e){ return e.isSample; });
+  });
   var resetBtn = document.getElementById("resetBtn");
   if(resetBtn) resetBtn.addEventListener("click", function(){
     document.getElementById("resetArea").innerHTML = '<span style="font-size:13px;color:var(--rust);font-weight:700;">Are you sure? </span>'+
@@ -1047,6 +1315,7 @@ function renderSettings(){
       '<button class="btn btn-ghost" id="cancelReset">Cancel</button>';
     document.getElementById("confirmReset").addEventListener("click", function(){
       deleteBookingsWhere(function(){ return true; });
+      deleteExpensesWhere(function(){ return true; });
       renderSettings();
     });
     document.getElementById("cancelReset").addEventListener("click", renderSettings);
@@ -1065,6 +1334,7 @@ function renderAll(){
   }
   if(state.view==="dashboard") renderDashboard();
   else if(state.view==="bookings") renderBookings();
+  else if(state.view==="expenses") renderExpenses();
   else if(state.view==="report") renderReport();
   else if(state.view==="settings") renderSettings();
 }
