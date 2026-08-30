@@ -248,7 +248,7 @@ function sendBookingConfirmationEmail(booking){
     total_amount: fmtINR(totalInclGst(booking)),
     deposit_status: booking.paymentMethod || "Pending"
   };
-  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params).then(function(){
+  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params,{publickey: EMAILJS_PUBLICKEY, privatekey: "wsanQ-HH8A1GAMiJA-84"})then(function(){
     showToast("Booking saved — confirmation email sent.");
   }).catch(function(err){
     console.error("EmailJS send failed:", err);
