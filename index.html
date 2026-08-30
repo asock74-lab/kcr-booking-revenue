@@ -248,6 +248,25 @@ function sendBookingConfirmationEmail(booking){
     total_amount: fmtINR(totalInclGst(booking)),
     deposit_status: booking.paymentMethod || "Pending"
   };
+  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params, { publicKey: EMAILJS_PUBLIC_KEY, privateKey: "wsanQ-HH8A1mGAMiJA-84" }).then(function(){
+    showToast("Booking saved — confirmation email sent.");
+  }).catch(function(err){
+    console.error("EmailJS send failed:", err);
+    showToast("Booking saved — email failed to send. Please follow up manually.", true);
+  });
+}
+  if(!emailjsReady || typeof emailjs === "undefined") return;
+  if(!booking.guestEmail) return;
+  var params = {
+    guest_name: booking.guestName,
+    guest_email: booking.guestEmail,
+    room_type: booking.roomType,
+    checkin_date: fmtDateShort(booking.checkIn),
+    checkout_date: fmtDateShort(booking.checkOut),
+    rate: fmtINR(booking.amount),
+    total_amount: fmtINR(totalInclGst(booking)),
+    deposit_status: booking.paymentMethod || "Pending"
+  };
   emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params,{publickey: EMAILJS_PUBLICKEY, privatekey: "wsanQ-HH8A1GAMiJA-84"})then(function(){
     showToast("Booking saved — confirmation email sent.");
   }).catch(function(err){
