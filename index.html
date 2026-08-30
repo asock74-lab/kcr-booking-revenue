@@ -171,6 +171,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
         <div id="syncBadge"></div>
+        <div id="roleBadge"></div>
         <div id="monthSelectorWrap"></div>
         <button class="btn btn-ghost" id="signOutBtn" style="padding:6px 10px;font-size:12px;">Sign Out</button>
       </div>
@@ -203,6 +204,8 @@ window.__firebaseConfig = {
 var ROOM_TYPES = ["Pool Villa", "Executive"];
 var REFERENCES = ["Walk-in", "OTA", "Agent", "Direct", "Phone", "Website", "Other"];
 var ID_TYPES = ["Aadhar", "Driving Licence", "Passport", "Voter ID", "Other"];
+var OWNER_EMAIL = "mrasock@kcr.local";
+var STAFF_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000; /* staff can edit a booking for 24h after it was added */
 var STORAGE_KEY = "kcr-booking-revenue-v1";
 var COLORS = { gold:"#B8935B", teal:"#3F6D5C" };
 
@@ -297,7 +300,10 @@ function initFirestore(){
       var rows = [];
       snapshot.forEach(function(doc){ rows.push(doc.data()); });
       state.bookings = rows;
-      state.syncStatus = navigator.onLine ? "online" : "offline";
+      /* metadata.fromCache is Firestore's own authoritative signal — far more
+         reliable than the browser's navigator.onLine flag, which is known to
+         report false negatives on some networks/devices. */
+      state.syncStatus = snapshot.metadata.fromCache ? "offline" : "online";
 
       if(!firstSnapshotReceived){
         firstSnapshotReceived = true;
@@ -371,6 +377,28 @@ function addSampleData(){
   seedSampleData();
 }
 
+/* ---------- roles ---------- */
+function isOwner(){
+  return !!(authInstance && authInstance.currentUser && authInstance.currentUser.email === OWNER_EMAIL);
+}
+function createdAtMillis(b){
+  if(!b || !b.createdAt) return 0;
+  if(typeof b.createdAt.toMillis === "function") return b.createdAt.toMillis();
+  if(typeof b.createdAt.seconds === "number") return b.createdAt.seconds*1000;
+  return 0;
+}
+function canEdit(b){
+  if(isOwner()) return true;
+  if(!b || !b.createdAt) return true; /* legacy rows with no createdAt: allow, rules are the real backstop */
+  return (Date.now() - createdAtMillis(b)) < STAFF_EDIT_WINDOW_MS;
+}
+function canDelete(){
+  return isOwner();
+}
+function roleLabel(){
+  return isOwner() ? "Owner" : "Staff";
+}
+
 window.addEventListener("online", function(){ state.syncStatus="online"; renderSyncBadge(); });
 window.addEventListener("offline", function(){ state.syncStatus="offline"; renderSyncBadge(); });
 
@@ -380,6 +408,14 @@ function renderSyncBadge(){
   var cls = state.syncStatus==="online" ? "" : state.syncStatus==="offline" ? "offline" : "loading";
   var label = state.syncStatus==="online" ? "Synced" : state.syncStatus==="offline" ? "Offline" : "Connecting…";
   el.innerHTML = '<div class="sync-badge '+cls+'"><span class="sync-dot"></span>'+label+'</div>';
+}
+
+function renderRoleBadge(){
+  var el = document.getElementById("roleBadge");
+  if(!el) return;
+  if(!authInstance || !authInstance.currentUser){ el.innerHTML = ""; return; }
+  var owner = isOwner();
+  el.innerHTML = '<div class="sync-badge" style="background:'+(owner?'var(--teal-soft)':'#F1EEE4')+';color:'+(owner?'var(--teal)':'var(--muted)')+';">'+(owner?"👑 Owner":"👤 Staff")+'</div>';
 }
 
 function monthBookings(){
@@ -591,8 +627,11 @@ function renderBookings(){
           '<td>'+nightsBetween(b.checkIn,b.checkOut)+'</td><td>'+esc(b.roomType)+'</td>'+
           '<td title="'+(b.adults!=null?b.adults:2)+' adult(s), '+(b.children||0)+' child(ren)">'+guestsTxt+'</td>'+
           '<td class="num">'+fmtINR(b.amount)+'</td><td>'+esc(b.reference)+'</td>'+
-          '<td style="white-space:nowrap;"><button class="btn-ghost" style="border:none;background:none;cursor:pointer;" data-edit="'+b.id+'">✏️</button> '+
-          '<button style="border:none;background:none;cursor:pointer;color:var(--rust);" data-del="'+b.id+'">🗑️</button></td></tr>';
+          '<td style="white-space:nowrap;">'+
+            (canEdit(b) ? '<button class="btn-ghost" style="border:none;background:none;cursor:pointer;" data-edit="'+b.id+'">✏️</button> '
+                        : '<span title="More than 24h old — only the owner can edit" style="opacity:.35;">🔒</span> ')+
+            (canDelete() ? '<button style="border:none;background:none;cursor:pointer;color:var(--rust);" data-del="'+b.id+'">🗑️</button>' : '')+
+          '</td></tr>';
       }).join("");
 
   html += '<div class="card"><div class="table-wrap"><table style="min-width:980px;"><thead><tr>'+
@@ -677,6 +716,10 @@ function openBookingModal(booking){
   document.getElementById("modalClose").addEventListener("click", closeModal);
   document.getElementById("modalCancel").addEventListener("click", closeModal);
   document.getElementById("modalSave").addEventListener("click", function(){
+    if(booking && !canEdit(booking)){
+      document.getElementById("modalErr").innerHTML = '<div class="err-box">⚠ This booking is more than 24 hours old — only the owner can edit it now.</div>';
+      return;
+    }
     var idNumberVal = document.getElementById("f_idNumber").value.trim();
     var idTypeVal = document.getElementById("f_idType").value;
     var form = {
@@ -695,7 +738,8 @@ function openBookingModal(booking){
       remarks: document.getElementById("f_remarks").value.trim(),
       idType: idTypeVal,
       idNumber: idNumberVal,
-      isSample: booking ? booking.isSample : false
+      isSample: booking ? booking.isSample : false,
+      createdAt: booking ? (booking.createdAt || firebase.firestore.FieldValue.serverTimestamp()) : firebase.firestore.FieldValue.serverTimestamp()
     };
     var err = "";
     if(!form.guestName) err = "Guest name is required.";
@@ -816,6 +860,7 @@ function reportStat(label, val){
 /* ---------- settings view ---------- */
 function renderSettings(){
   var sampleCount = state.bookings.filter(function(b){ return b.isSample; }).length;
+  var owner = isOwner();
   var html = '<div style="max-width:620px;">'+
     '<div class="page-title" style="font-size:20px;margin-bottom:14px;">Settings</div>'+
     '<div class="card" style="padding:18px;margin-bottom:14px;"><div class="eyebrow">Data Storage</div>'+
@@ -823,15 +868,22 @@ function renderSettings(){
     (sampleCount>0 ? ' ('+sampleCount+' marked as sample data)':'')+'. '+
     'Records sync automatically across every device that opens this app.</div></div>'+
 
+    '<div class="card" style="padding:18px;margin-bottom:14px;"><div class="eyebrow">Account</div>'+
+    '<div style="font-size:13px;margin-top:8px;">Signed in as <strong>'+(owner?"Owner":"Staff")+'</strong> ('+esc((authInstance&&authInstance.currentUser&&authInstance.currentUser.email)||"")+')'+
+    (owner ? '' : '<div style="color:var(--muted);margin-top:4px;">Staff can add bookings and edit them for 24 hours. Deleting, removing sample data, and clearing all data are owner-only.</div>')+
+    '</div></div>'+
+
     '<div class="card" style="padding:18px;margin-bottom:14px;"><div class="eyebrow">Sample Data</div>'+
     '<div style="font-size:13px;color:var(--muted);margin:8px 0 12px;">Load sample bookings to try the dashboard, or remove them once you start entering real data. This affects every device.</div>'+
     '<div style="display:flex;gap:10px;"><button class="btn btn-outline" id="loadSampleBtn">Load Sample Data</button>'+
-    (sampleCount>0 ? '<button class="btn btn-outline" id="removeSampleBtn">🗑 Remove Sample Data ('+sampleCount+')</button>' : '')+
+    (owner && sampleCount>0 ? '<button class="btn btn-outline" id="removeSampleBtn">🗑 Remove Sample Data ('+sampleCount+')</button>' : '')+
     '</div></div>'+
 
-    '<div class="card" style="padding:18px;border-color:#A3492F55;"><div class="eyebrow" style="color:var(--rust);">Danger Zone</div>'+
-    '<div style="font-size:13px;color:var(--muted);margin:8px 0 12px;">This permanently deletes every booking record from the shared database, on every device, including real data. This cannot be undone.</div>'+
-    '<div id="resetArea"><button class="btn btn-danger" id="resetBtn">↺ Clear All Data</button></div></div>'+
+    (owner ?
+      '<div class="card" style="padding:18px;border-color:#A3492F55;"><div class="eyebrow" style="color:var(--rust);">Danger Zone</div>'+
+      '<div style="font-size:13px;color:var(--muted);margin:8px 0 12px;">This permanently deletes every booking record from the shared database, on every device, including real data. This cannot be undone.</div>'+
+      '<div id="resetArea"><button class="btn btn-danger" id="resetBtn">↺ Clear All Data</button></div></div>'
+      : '')+
     '</div>';
   document.getElementById("view").innerHTML = html;
 
@@ -842,7 +894,8 @@ function renderSettings(){
   if(rm) rm.addEventListener("click", function(){
     deleteBookingsWhere(function(b){ return b.isSample; });
   });
-  document.getElementById("resetBtn").addEventListener("click", function(){
+  var resetBtn = document.getElementById("resetBtn");
+  if(resetBtn) resetBtn.addEventListener("click", function(){
     document.getElementById("resetArea").innerHTML = '<span style="font-size:13px;color:var(--rust);font-weight:700;">Are you sure? </span>'+
       '<button class="btn btn-danger" id="confirmReset">Yes, delete everything</button> '+
       '<button class="btn btn-ghost" id="cancelReset">Cancel</button>';
@@ -859,6 +912,7 @@ function renderAll(){
   renderNav();
   renderMonthSelector();
   renderSyncBadge();
+  renderRoleBadge();
   if(!firstSnapshotReceived && state.bookings.length===0){
     document.getElementById("view").innerHTML = '<div style="padding:60px 0;text-align:center;color:var(--muted);font-size:13px;">Connecting to the shared database…</div>';
     return;
@@ -876,14 +930,18 @@ var firestoreStarted = false;
 function showAuthScreen(errMsg){
   document.getElementById("authScreen").style.display = "flex";
   document.getElementById("appRoot").style.display = "none";
+  var btn = document.getElementById("authSubmit");
+  btn.disabled = false; btn.textContent = "Sign In";
+  document.getElementById("authPassword").value = "";
   if(errMsg) document.getElementById("authErr").innerHTML = '<div class="err-box" style="text-align:left;">⚠ '+esc(errMsg)+'</div>';
+  else document.getElementById("authErr").innerHTML = "";
 }
 function showApp(){
   document.getElementById("authScreen").style.display = "none";
   document.getElementById("appRoot").style.display = "block";
+  renderAll(); /* always refresh so a new login's role/data shows immediately, even after sign-out */
   if(!firestoreStarted){
     firestoreStarted = true;
-    renderAll();
     initFirestore();
   }
 }
