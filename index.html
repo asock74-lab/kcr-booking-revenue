@@ -123,8 +123,9 @@
 
   @media print{
     body *{visibility:hidden;}
-    #print-area, #print-area *{visibility:visible;}
+    #print-area, #print-area *, #receipt-print-area, #receipt-print-area *{visibility:visible;}
     #print-area{position:absolute;left:0;top:0;width:100%;border:none !important;padding:0 !important;}
+    #receipt-print-area{position:absolute;left:0;top:0;width:100%;border:none !important;padding:0 !important;}
     .no-print{display:none !important;}
     @page{size:A4;margin:14mm;}
   }
@@ -203,8 +204,14 @@ window.__firebaseConfig = {
 /* ---------- constants ---------- */
 var ROOM_TYPES = ["Pool Villa", "Executive"];
 var REFERENCES = ["Walk-in", "OTA", "Agent", "Direct", "Phone", "Website", "Other"];
+var PAYMENT_METHODS = ["Cash", "UPI", "Card", "Bank Transfer", "Other"];
 var ID_TYPES = ["Aadhar", "Driving Licence", "Passport", "Voter ID", "Other"];
 var OWNER_EMAIL = "mrasock@kcr.local";
+var BUSINESS_NAME = "KCR Hospitality Services";
+var GSTIN = "33AIHPA7551R1ZX";
+var BUSINESS_PHONE = "8148022804";
+var BUSINESS_WEBSITE = "www.kingscourtresort.com";
+var BUSINESS_EMAIL = "booking@kingscourtresort.com";
 var STAFF_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000; /* staff can edit a booking for 24h after it was added */
 var GST_RATES = [0, 5, 12, 18]; /* available GST% choices */
 var GST_THRESHOLD_PER_NIGHT = 7500; /* per current Indian hotel GST rules: <=7500/night avg -> 5%, above -> 18% */
@@ -251,7 +258,7 @@ function downloadBlob(content, filename, mime){
 }
 
 function bookingsToCSV(rows){
-  var headers = ["Date","Guest Name","Mobile","Location","Check-in","Check-out","Nights","Room Type","Adults","Children","Base Amount","GST %","GST Amount","Total","Reference","Remarks"];
+  var headers = ["Date","Guest Name","Mobile","Location","Check-in","Check-out","Nights","Room Type","Adults","Children","Base Amount","GST %","GST Amount","Total","Reference","Payment Method","Remarks"];
   var lines = [headers.join(",")];
   var totalAmount = 0, totalNights = 0, totalAdults = 0, totalChildren = 0, totalGst = 0, totalWithGst = 0;
   rows.forEach(function(b){
@@ -260,9 +267,9 @@ function bookingsToCSV(rows){
     var gst = gstAmountFor(b), tot = totalInclGst(b);
     totalAmount += b.amount; totalNights += n; totalAdults += ad; totalChildren += ch; totalGst += gst; totalWithGst += tot;
     lines.push([b.bookingDate,b.guestName,b.mobile,b.location,b.checkIn,b.checkOut,
-      n,b.roomType,ad,ch,b.amount,(b.gstRate||0),gst,tot,b.reference,b.remarks||""].map(csvEscape).join(","));
+      n,b.roomType,ad,ch,b.amount,(b.gstRate||0),gst,tot,b.reference,(b.paymentMethod||""),b.remarks||""].map(csvEscape).join(","));
   });
-  lines.push(["","","","","","",totalNights,"TOTAL",totalAdults,totalChildren,totalAmount,"",totalGst,totalWithGst,"",""].map(csvEscape).join(","));
+  lines.push(["","","","","","",totalNights,"TOTAL",totalAdults,totalChildren,totalAmount,"",totalGst,totalWithGst,"","",""].map(csvEscape).join(","));
   return lines.join("\n");
 }
 
@@ -282,10 +289,11 @@ function makeSampleData(){
     ["2026-08-22","Lakshmi Narayanan","9092233445","Chennai","2026-08-23","2026-08-25","Executive",9000,"Agent","",2,0],
     ["2026-08-24","The Rodrigues Family","9345678901","Bengaluru","2026-08-25","2026-08-28","Pool Villa",36000,"OTA","3 nights",4,3]
   ];
+  var payMap = {"Walk-in":"Cash","OTA":"Card","Agent":"Bank Transfer","Direct":"UPI","Phone":"UPI","Website":"Card","Other":"Cash"};
   return rows.map(function(r){
     var nights = nightsBetween(r[4], r[5]);
     return {id:uid(),bookingDate:r[0],guestName:r[1],mobile:r[2],location:r[3],checkIn:r[4],checkOut:r[5],
-      roomType:r[6],amount:r[7],reference:r[8],remarks:r[9],adults:r[10],children:r[11],
+      roomType:r[6],amount:r[7],reference:r[8],paymentMethod:(payMap[r[8]]||"Cash"),remarks:r[9],adults:r[10],children:r[11],
       gstRate:suggestGstRate(r[7], nights), isSample:true};
   });
 }
@@ -648,6 +656,7 @@ function renderBookings(){
           '<td class="num" style="font-weight:700;">'+fmtINR(totalInclGst(b))+'</td>'+
           '<td>'+esc(b.reference)+'</td>'+
           '<td style="white-space:nowrap;">'+
+            '<button class="btn-ghost" style="border:none;background:none;cursor:pointer;" data-receipt="'+b.id+'" title="Print receipt">🧾</button> '+
             (canEdit(b) ? '<button class="btn-ghost" style="border:none;background:none;cursor:pointer;" data-edit="'+b.id+'">✏️</button> '
                         : '<span title="More than 24h old — only the owner can edit" style="opacity:.35;">🔒</span> ')+
             (canDelete() ? '<button style="border:none;background:none;cursor:pointer;color:var(--rust);" data-del="'+b.id+'">🗑️</button>' : '')+
@@ -680,18 +689,25 @@ function renderBookings(){
       }
     });
   });
+  document.querySelectorAll("[data-receipt]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var b = state.bookings.find(function(x){ return x.id===btn.getAttribute("data-receipt"); });
+      if(b) openReceiptModal(b);
+    });
+  });
 }
 
 /* ---------- booking modal ---------- */
 function openBookingModal(booking){
   state.editing = booking;
   var f = booking || {bookingDate:todayISO(), checkIn:todayISO(), checkOut:todayISO(), guestName:"", mobile:"",
-    location:"", roomType:ROOM_TYPES[0], amount:"", reference:REFERENCES[0], remarks:"", adults:2, children:0,
+    location:"", roomType:ROOM_TYPES[0], amount:"", reference:REFERENCES[0], paymentMethod:PAYMENT_METHODS[0], remarks:"", adults:2, children:0,
     idType:"", idNumber:"", gstRate:null};
   var nights = f.checkIn && f.checkOut ? nightsBetween(f.checkIn,f.checkOut) : 0;
   var initialGstRate = f.gstRate!=null ? f.gstRate : suggestGstRate(Number(f.amount)||0, nights||1);
   var roomOpts = ROOM_TYPES.map(function(r){ return '<option value="'+r+'"'+(f.roomType===r?' selected':'')+'>'+r+'</option>'; }).join("");
   var refOpts = REFERENCES.map(function(r){ return '<option value="'+r+'"'+(f.reference===r?' selected':'')+'>'+r+'</option>'; }).join("");
+  var payOpts = PAYMENT_METHODS.map(function(p){ return '<option value="'+p+'"'+((f.paymentMethod||PAYMENT_METHODS[0])===p?' selected':'')+'>'+p+'</option>'; }).join("");
   var idOpts = '<option value="">— Not captured —</option>' + ID_TYPES.map(function(t){ return '<option value="'+t+'"'+(f.idType===t?' selected':'')+'>'+t+'</option>'; }).join("");
   var gstOpts = GST_RATES.map(function(r){ return '<option value="'+r+'"'+(initialGstRate===r?' selected':'')+'>'+r+'%</option>'; }).join("");
 
@@ -707,6 +723,7 @@ function openBookingModal(booking){
       field("Location / City", '<input class="input" id="f_location" value="'+esc(f.location)+'" placeholder="Guest\u2019s city">')+
       field("Room Type", '<select class="input" id="f_roomType">'+roomOpts+'</select>')+
       field("Booking Source", '<select class="input" id="f_reference">'+refOpts+'</select>')+
+      field("Payment Method", '<select class="input" id="f_paymentMethod">'+payOpts+'</select>')+
       field("No. of Adults", '<input type="number" min="1" class="input" id="f_adults" value="'+(f.adults!=null?f.adults:2)+'">')+
       field("No. of Children", '<input type="number" min="0" class="input" id="f_children" value="'+(f.children!=null?f.children:0)+'">')+
       field("Base Amount (₹, before GST)", '<input type="number" min="0" class="input" id="f_amount" value="'+f.amount+'" placeholder="0">')+
@@ -774,6 +791,7 @@ function openBookingModal(booking){
       location: document.getElementById("f_location").value.trim(),
       roomType: document.getElementById("f_roomType").value,
       reference: document.getElementById("f_reference").value,
+      paymentMethod: document.getElementById("f_paymentMethod").value,
       adults: Number(document.getElementById("f_adults").value),
       children: Number(document.getElementById("f_children").value),
       amount: Number(document.getElementById("f_amount").value),
@@ -803,6 +821,72 @@ function field(label, inputHtml){
 }
 function closeModal(){ document.getElementById("modalRoot").innerHTML=""; state.editing=null; }
 
+/* ---------- payment receipt ---------- */
+function receiptNumberFor(b){
+  var datePart = (b.bookingDate||todayISO()).replace(/-/g,"");
+  var idPart = (b.id||"").replace(/[^a-zA-Z0-9]/g,"").slice(-6).toUpperCase();
+  return "KCR-"+datePart+"-"+idPart;
+}
+function openReceiptModal(b){
+  var nights = nightsBetween(b.checkIn,b.checkOut);
+  var guestsTxt = (b.adults!=null?b.adults:2)+(b.children ? " Adults + "+b.children+" Children" : " Adults");
+  var gst = gstAmountFor(b), total = totalInclGst(b);
+
+  var html = '<div class="modal-bg" id="modalBg"><div class="modal" style="max-width:480px;">'+
+    '<div class="modal-head no-print"><h3>Payment Receipt</h3><button class="close-x" id="modalClose">✕</button></div>'+
+    '<div id="receipt-print-area" style="background:#fff;padding:8px 4px;">'+
+      '<div style="text-align:center;border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:16px;">'+
+        '<div style="font-family:var(--serif);font-size:11px;letter-spacing:.2em;color:var(--gold-dark);font-weight:700;">KING\u2019S COURT RESORT</div>'+
+        '<div style="font-family:var(--serif);font-size:18px;font-weight:700;margin-top:4px;">Payment Receipt</div>'+
+        '<div style="font-size:10.5px;color:var(--muted);margin-top:4px;">'+esc(BUSINESS_NAME)+' · GSTIN: '+esc(GSTIN)+'</div>'+
+      '</div>'+
+      '<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:14px;color:var(--muted);">'+
+        '<div>Receipt No: <strong style="color:var(--ink);">'+receiptNumberFor(b)+'</strong></div>'+
+        '<div>Date: <strong style="color:var(--ink);">'+fmtDateShort(todayISO())+'</strong></div>'+
+      '</div>'+
+      '<div style="margin-bottom:14px;">'+
+        '<div class="eyebrow" style="margin-bottom:6px;">Guest Details</div>'+
+        '<div style="font-size:13.5px;line-height:1.7;">'+
+          '<strong>'+esc(b.guestName)+'</strong><br>'+
+          (b.mobile ? esc(b.mobile)+'<br>' : '')+
+          (b.location ? esc(b.location) : '')+
+        '</div>'+
+      '</div>'+
+      '<div style="margin-bottom:14px;">'+
+        '<div class="eyebrow" style="margin-bottom:6px;">Stay Details</div>'+
+        '<table style="width:100%;font-size:13px;"><tbody>'+
+          '<tr><td style="color:var(--muted);padding:3px 0;">Room Type</td><td style="text-align:right;">'+esc(b.roomType)+'</td></tr>'+
+          '<tr><td style="color:var(--muted);padding:3px 0;">Check-in</td><td style="text-align:right;">'+fmtDateShort(b.checkIn)+'</td></tr>'+
+          '<tr><td style="color:var(--muted);padding:3px 0;">Check-out</td><td style="text-align:right;">'+fmtDateShort(b.checkOut)+'</td></tr>'+
+          '<tr><td style="color:var(--muted);padding:3px 0;">Nights</td><td style="text-align:right;">'+nights+'</td></tr>'+
+          '<tr><td style="color:var(--muted);padding:3px 0;">Guests</td><td style="text-align:right;">'+guestsTxt+'</td></tr>'+
+        '</tbody></table>'+
+      '</div>'+
+      '<div style="border-top:1px solid var(--line);padding-top:10px;">'+
+        '<table style="width:100%;font-size:13.5px;"><tbody>'+
+          '<tr><td style="padding:3px 0;">Room Charges</td><td style="text-align:right;">'+fmtINR(b.amount)+'</td></tr>'+
+          '<tr><td style="padding:3px 0;">GST ('+(b.gstRate||0)+'%)</td><td style="text-align:right;">'+fmtINR(gst)+'</td></tr>'+
+          '<tr style="font-weight:700;font-size:16px;border-top:2px solid var(--ink);"><td style="padding:8px 0;">Total Paid</td><td style="text-align:right;">'+fmtINR(total)+'</td></tr>'+
+        '</tbody></table>'+
+      '</div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:10px;">Payment Method: <strong style="color:var(--ink);">'+esc(b.paymentMethod||"—")+'</strong> · Booking Source: '+esc(b.reference)+'</div>'+
+      '<div style="margin-top:34px;display:flex;justify-content:space-between;align-items:flex-end;font-size:11px;color:var(--muted);">'+
+        '<div>Thank you for staying with us.<br>'+esc(BUSINESS_PHONE)+' · '+esc(BUSINESS_WEBSITE)+' · '+esc(BUSINESS_EMAIL)+'</div>'+
+        '<div style="text-align:center;"><div style="border-top:1px solid var(--muted);width:130px;padding-top:4px;">Authorized Signatory</div></div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="modal-actions no-print"><button class="btn btn-outline" id="modalCancel">Close</button>'+
+    '<button class="btn btn-gold" id="printReceiptBtn">🖨 Print Receipt</button></div>'+
+    '</div></div>';
+
+  document.getElementById("modalRoot").innerHTML = html;
+  document.getElementById("modalBg").addEventListener("click", function(e){ if(e.target.id==="modalBg") closeModal(); });
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("modalCancel").addEventListener("click", closeModal);
+  document.getElementById("printReceiptBtn").addEventListener("click", function(){ window.print(); });
+}
+
+
 /* ---------- monthly report view ---------- */
 function renderReport(){
   var list = monthBookings();
@@ -819,7 +903,8 @@ function renderReport(){
 
   html += '<div class="report-area" id="print-area">'+
     '<div class="report-head"><div class="k">KING\u2019S COURT RESORT</div><div class="t">Monthly Room Booking &amp; Revenue Report</div>'+
-    '<div class="m">Month: '+monthLabel(state.selectedMonth)+'</div></div>';
+    '<div class="m">Month: '+monthLabel(state.selectedMonth)+'</div>'+
+    '<div class="m" style="font-size:10.5px;margin-top:2px;">'+esc(BUSINESS_NAME)+' · GSTIN: '+esc(GSTIN)+'</div></div>';
 
   var monthGst = list.reduce(function(a,b){ return a+gstAmountFor(b); }, 0);
   var monthTotalWithGst = stats.revenue + monthGst;
@@ -850,7 +935,7 @@ function renderReport(){
     ["Date","Guest","Mobile","Location","Check-in","Check-out","Nights","Room","Guests","Base Amt","GST","Total","Ref"].map(function(h){return '<th>'+h+'</th>';}).join("")+
     '</tr></thead><tbody>'+detailBody+'</tbody></table></div>');
 
-  html += '<div class="report-foot">Generated by KCR Monthly Room Booking &amp; Revenue Report tool · For internal management use · GST rates should be verified with your accountant</div>';
+  html += '<div class="report-foot">'+esc(BUSINESS_PHONE)+' · '+esc(BUSINESS_WEBSITE)+' · '+esc(BUSINESS_EMAIL)+'<br>Generated by KCR Monthly Room Booking &amp; Revenue Report tool · For internal management use · GST rates should be verified with your accountant</div>';
   html += '</div>';
 
   document.getElementById("view").innerHTML = html;
