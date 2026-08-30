@@ -230,7 +230,7 @@ window.debugEmailJS = function(){ return {ready: emailjsReady, hasEmailjs: typeo
 function initEmailJS(){
   try{
     if(typeof emailjs !== "undefined"){
-      emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY, privateKey:wsanQ-HH8A1mGAMiJA-84 });
+      emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY, privateKey:"wsanQ-HH8A1mGAMiJA-84" });
       emailjsReady = true;
     }
   }catch(e){ console.error("EmailJS init failed:", e); }
