@@ -833,9 +833,10 @@ function openReceiptModal(b){
   var gst = gstAmountFor(b), total = totalInclGst(b);
 
   var html = '<div class="modal-bg" id="modalBg"><div class="modal" style="max-width:480px;">'+
-    '<div class="modal-head no-print"><h3>Payment Receipt</h3><button class="close-x" id="modalClose">✕</button></div>'+
+    '<div class="modal-head no-print"><h3>Receipt Preview</h3><button class="close-x" id="modalClose">✕</button></div>'+
     '<div id="receipt-print-area" style="background:#fff;padding:8px 4px;">'+
       '<div style="text-align:center;border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:16px;">'+
+        '<img src="./sidebar-mark.png" alt="Kings Court Resort" style="width:44px;height:44px;border-radius:10px;margin-bottom:8px;">'+
         '<div style="font-family:var(--serif);font-size:11px;letter-spacing:.2em;color:var(--gold-dark);font-weight:700;">KING\u2019S COURT RESORT</div>'+
         '<div style="font-family:var(--serif);font-size:18px;font-weight:700;margin-top:4px;">Payment Receipt</div>'+
         '<div style="font-size:10.5px;color:var(--muted);margin-top:4px;">'+esc(BUSINESS_NAME)+' · GSTIN: '+esc(GSTIN)+'</div>'+
