@@ -206,6 +206,8 @@ var REFERENCES = ["Walk-in", "OTA", "Agent", "Direct", "Phone", "Website", "Othe
 var ID_TYPES = ["Aadhar", "Driving Licence", "Passport", "Voter ID", "Other"];
 var OWNER_EMAIL = "mrasock@kcr.local";
 var STAFF_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000; /* staff can edit a booking for 24h after it was added */
+var GST_RATES = [0, 5, 12, 18]; /* available GST% choices */
+var GST_THRESHOLD_PER_NIGHT = 7500; /* per current Indian hotel GST rules: <=7500/night avg -> 5%, above -> 18% */
 var STORAGE_KEY = "kcr-booking-revenue-v1";
 var COLORS = { gold:"#B8935B", teal:"#3F6D5C" };
 
@@ -217,6 +219,18 @@ function parseISO(s){ if(!s) return null; var p=s.split("-").map(Number); return
 function todayISO(){ return toISO(new Date()); }
 function nightsBetween(ci,co){ var a=parseISO(ci),b=parseISO(co); if(!a||!b) return 0; var d=Math.round((b-a)/86400000); return Math.max(1,d); }
 function fmtINR(n){ return "₹"+Math.round(n||0).toLocaleString("en-IN"); }
+function suggestGstRate(amount, nights){
+  if(!nights || nights<=0) nights = 1;
+  var avgPerNight = amount / nights;
+  return avgPerNight > GST_THRESHOLD_PER_NIGHT ? 18 : 5;
+}
+function gstAmountFor(b){
+  var rate = (b && b.gstRate!=null) ? b.gstRate : 0;
+  return Math.round((b.amount||0) * rate / 100);
+}
+function totalInclGst(b){
+  return (b.amount||0) + gstAmountFor(b);
+}
 function fmtDateShort(iso){ var d=parseISO(iso); if(!d) return "—"; return d.toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}); }
 function monthKey(iso){ return iso ? iso.slice(0,7) : ""; }
 function monthLabel(ym){ var p=ym.split("-").map(Number); return new Date(p[0],p[1]-1,1).toLocaleDateString("en-IN",{month:"long",year:"numeric"}); }
@@ -237,17 +251,18 @@ function downloadBlob(content, filename, mime){
 }
 
 function bookingsToCSV(rows){
-  var headers = ["Date","Guest Name","Mobile","Location","Check-in","Check-out","Nights","Room Type","Adults","Children","Amount","Reference","Remarks"];
+  var headers = ["Date","Guest Name","Mobile","Location","Check-in","Check-out","Nights","Room Type","Adults","Children","Base Amount","GST %","GST Amount","Total","Reference","Remarks"];
   var lines = [headers.join(",")];
-  var totalAmount = 0, totalNights = 0, totalAdults = 0, totalChildren = 0;
+  var totalAmount = 0, totalNights = 0, totalAdults = 0, totalChildren = 0, totalGst = 0, totalWithGst = 0;
   rows.forEach(function(b){
     var n = nightsBetween(b.checkIn,b.checkOut);
     var ad = b.adults!=null?b.adults:2, ch = b.children||0;
-    totalAmount += b.amount; totalNights += n; totalAdults += ad; totalChildren += ch;
+    var gst = gstAmountFor(b), tot = totalInclGst(b);
+    totalAmount += b.amount; totalNights += n; totalAdults += ad; totalChildren += ch; totalGst += gst; totalWithGst += tot;
     lines.push([b.bookingDate,b.guestName,b.mobile,b.location,b.checkIn,b.checkOut,
-      n,b.roomType,ad,ch,b.amount,b.reference,b.remarks||""].map(csvEscape).join(","));
+      n,b.roomType,ad,ch,b.amount,(b.gstRate||0),gst,tot,b.reference,b.remarks||""].map(csvEscape).join(","));
   });
-  lines.push(["","","","","","",totalNights,"TOTAL",totalAdults,totalChildren,totalAmount,"",""].map(csvEscape).join(","));
+  lines.push(["","","","","","",totalNights,"TOTAL",totalAdults,totalChildren,totalAmount,"",totalGst,totalWithGst,"",""].map(csvEscape).join(","));
   return lines.join("\n");
 }
 
@@ -268,8 +283,10 @@ function makeSampleData(){
     ["2026-08-24","The Rodrigues Family","9345678901","Bengaluru","2026-08-25","2026-08-28","Pool Villa",36000,"OTA","3 nights",4,3]
   ];
   return rows.map(function(r){
+    var nights = nightsBetween(r[4], r[5]);
     return {id:uid(),bookingDate:r[0],guestName:r[1],mobile:r[2],location:r[3],checkIn:r[4],checkOut:r[5],
-      roomType:r[6],amount:r[7],reference:r[8],remarks:r[9],adults:r[10],children:r[11],isSample:true};
+      roomType:r[6],amount:r[7],reference:r[8],remarks:r[9],adults:r[10],children:r[11],
+      gstRate:suggestGstRate(r[7], nights), isSample:true};
   });
 }
 
@@ -626,7 +643,10 @@ function renderBookings(){
           '<td>'+fmtDateShort(b.checkIn)+'</td><td>'+fmtDateShort(b.checkOut)+'</td>'+
           '<td>'+nightsBetween(b.checkIn,b.checkOut)+'</td><td>'+esc(b.roomType)+'</td>'+
           '<td title="'+(b.adults!=null?b.adults:2)+' adult(s), '+(b.children||0)+' child(ren)">'+guestsTxt+'</td>'+
-          '<td class="num">'+fmtINR(b.amount)+'</td><td>'+esc(b.reference)+'</td>'+
+          '<td class="num" title="Base '+fmtINR(b.amount)+' + GST '+(b.gstRate||0)+'% ('+fmtINR(gstAmountFor(b))+')">'+fmtINR(b.amount)+
+            (b.gstRate ? '<span style="color:var(--muted);font-weight:400;font-size:11px;"> +'+b.gstRate+'%</span>' : '')+'</td>'+
+          '<td class="num" style="font-weight:700;">'+fmtINR(totalInclGst(b))+'</td>'+
+          '<td>'+esc(b.reference)+'</td>'+
           '<td style="white-space:nowrap;">'+
             (canEdit(b) ? '<button class="btn-ghost" style="border:none;background:none;cursor:pointer;" data-edit="'+b.id+'">✏️</button> '
                         : '<span title="More than 24h old — only the owner can edit" style="opacity:.35;">🔒</span> ')+
@@ -634,8 +654,8 @@ function renderBookings(){
           '</td></tr>';
       }).join("");
 
-  html += '<div class="card"><div class="table-wrap"><table style="min-width:980px;"><thead><tr>'+
-    ["Date","Guest Name","Mobile","Location","Check-in","Check-out","Nights","Room Type","Guests","Amount","Reference",""].map(function(h){return '<th>'+h+'</th>';}).join("")+
+  html += '<div class="card"><div class="table-wrap"><table style="min-width:1080px;"><thead><tr>'+
+    ["Date","Guest Name","Mobile","Location","Check-in","Check-out","Nights","Room Type","Guests","Amount","Total","Reference",""].map(function(h){return '<th>'+h+'</th>';}).join("")+
     '</tr></thead><tbody>'+body+'</tbody></table></div></div>';
 
   document.getElementById("view").innerHTML = html;
@@ -667,11 +687,13 @@ function openBookingModal(booking){
   state.editing = booking;
   var f = booking || {bookingDate:todayISO(), checkIn:todayISO(), checkOut:todayISO(), guestName:"", mobile:"",
     location:"", roomType:ROOM_TYPES[0], amount:"", reference:REFERENCES[0], remarks:"", adults:2, children:0,
-    idType:"", idNumber:""};
+    idType:"", idNumber:"", gstRate:null};
   var nights = f.checkIn && f.checkOut ? nightsBetween(f.checkIn,f.checkOut) : 0;
+  var initialGstRate = f.gstRate!=null ? f.gstRate : suggestGstRate(Number(f.amount)||0, nights||1);
   var roomOpts = ROOM_TYPES.map(function(r){ return '<option value="'+r+'"'+(f.roomType===r?' selected':'')+'>'+r+'</option>'; }).join("");
   var refOpts = REFERENCES.map(function(r){ return '<option value="'+r+'"'+(f.reference===r?' selected':'')+'>'+r+'</option>'; }).join("");
   var idOpts = '<option value="">— Not captured —</option>' + ID_TYPES.map(function(t){ return '<option value="'+t+'"'+(f.idType===t?' selected':'')+'>'+t+'</option>'; }).join("");
+  var gstOpts = GST_RATES.map(function(r){ return '<option value="'+r+'"'+(initialGstRate===r?' selected':'')+'>'+r+'%</option>'; }).join("");
 
   var html = '<div class="modal-bg" id="modalBg"><div class="modal">'+
     '<div class="modal-head"><h3>'+(booking?"Edit Booking":"Add Booking")+'</h3><button class="close-x" id="modalClose">✕</button></div>'+
@@ -687,9 +709,12 @@ function openBookingModal(booking){
       field("Booking Source", '<select class="input" id="f_reference">'+refOpts+'</select>')+
       field("No. of Adults", '<input type="number" min="1" class="input" id="f_adults" value="'+(f.adults!=null?f.adults:2)+'">')+
       field("No. of Children", '<input type="number" min="0" class="input" id="f_children" value="'+(f.children!=null?f.children:0)+'">')+
-      field("Amount (₹)", '<input type="number" min="0" class="input" id="f_amount" value="'+f.amount+'" placeholder="0">')+
+      field("Base Amount (₹, before GST)", '<input type="number" min="0" class="input" id="f_amount" value="'+f.amount+'" placeholder="0">')+
       field("Nights (auto)", '<div class="input" style="background:#F1EEE4;color:var(--muted);" id="nightsDisplay">'+nights+' night'+(nights===1?"":"s")+'</div>')+
+      field("GST Rate", '<select class="input" id="f_gstRate">'+gstOpts+'</select>')+
+      field("Total (incl. GST)", '<div class="input" style="background:#F1EEE4;color:var(--ink);font-weight:700;" id="totalDisplay">'+fmtINR(totalInclGst({amount:Number(f.amount)||0, gstRate:initialGstRate}))+'</div>')+
     '</div>'+
+    '<div class="panel-note" id="gstHint" style="margin:-8px 0 12px;">GST rate suggested from average nightly rate — change it if this stay mixes weekday/weekend Pool Villa nights.</div>'+
     field("Remarks (optional)", '<input class="input" id="f_remarks" value="'+esc(f.remarks||"")+'" placeholder="Any notes">')+
     '<div style="border-top:1px solid var(--line);margin:16px 0 14px;padding-top:14px;">'+
       '<div class="eyebrow" style="margin-bottom:10px;">Identity Proof (captured at arrival)</div>'+
@@ -708,9 +733,28 @@ function openBookingModal(booking){
     var ci = document.getElementById("f_checkIn").value, co = document.getElementById("f_checkOut").value;
     var n = ci && co ? nightsBetween(ci,co) : 0;
     document.getElementById("nightsDisplay").textContent = n+" night"+(n===1?"":"s");
+    return n;
   }
-  document.getElementById("f_checkIn").addEventListener("change", updateNights);
-  document.getElementById("f_checkOut").addEventListener("change", updateNights);
+  function updateTotal(){
+    var amt = Number(document.getElementById("f_amount").value) || 0;
+    var rate = Number(document.getElementById("f_gstRate").value) || 0;
+    document.getElementById("totalDisplay").textContent = fmtINR(totalInclGst({amount:amt, gstRate:rate}));
+  }
+  function autoSuggestGst(){
+    var amt = Number(document.getElementById("f_amount").value) || 0;
+    var n = updateNights();
+    var suggested = suggestGstRate(amt, n||1);
+    document.getElementById("f_gstRate").value = String(suggested);
+    updateTotal();
+  }
+  document.getElementById("f_checkIn").addEventListener("change", function(){ updateNights(); updateTotal(); });
+  document.getElementById("f_checkOut").addEventListener("change", function(){ updateNights(); updateTotal(); });
+  document.getElementById("f_amount").addEventListener("input", updateTotal);
+  document.getElementById("f_gstRate").addEventListener("change", updateTotal);
+  var suggestBtnNote = document.getElementById("gstHint");
+  document.getElementById("f_amount").addEventListener("blur", function(){
+    if(!booking) autoSuggestGst(); /* only auto-adjust the suggestion for brand-new bookings, never silently override an edit */
+  });
 
   document.getElementById("modalBg").addEventListener("click", function(e){ if(e.target.id==="modalBg") closeModal(); });
   document.getElementById("modalClose").addEventListener("click", closeModal);
@@ -735,6 +779,7 @@ function openBookingModal(booking){
       adults: Number(document.getElementById("f_adults").value),
       children: Number(document.getElementById("f_children").value),
       amount: Number(document.getElementById("f_amount").value),
+      gstRate: Number(document.getElementById("f_gstRate").value),
       remarks: document.getElementById("f_remarks").value.trim(),
       idType: idTypeVal,
       idNumber: idNumberVal,
@@ -778,8 +823,13 @@ function renderReport(){
     '<div class="report-head"><div class="k">KING\u2019S COURT RESORT</div><div class="t">Monthly Room Booking &amp; Revenue Report</div>'+
     '<div class="m">Month: '+monthLabel(state.selectedMonth)+'</div></div>';
 
+  var monthGst = list.reduce(function(a,b){ return a+gstAmountFor(b); }, 0);
+  var monthTotalWithGst = stats.revenue + monthGst;
+
   html += reportSection("A","Overall Summary", '<div class="stat-inline">'+
-    reportStat("Total Bookings", stats.total)+reportStat("Total Room Nights", stats.totalNights)+reportStat("Total Revenue", fmtINR(stats.revenue))+'</div>');
+    reportStat("Total Bookings", stats.total)+reportStat("Total Room Nights", stats.totalNights)+
+    reportStat("Revenue (excl. GST)", fmtINR(stats.revenue))+reportStat("GST Collected", fmtINR(monthGst))+
+    reportStat("Total incl. GST", fmtINR(monthTotalWithGst))+'</div>');
 
   html += reportSection("B","Room Type Performance", roomTableHTML(byRoom, tableTotals(byRoom)));
   html += reportSection("C","Booking Source Performance", sourceTableHTML(bySrc, tableTotals(bySrc)));
@@ -788,19 +838,21 @@ function renderReport(){
     ? '<div style="font-size:13px;color:var(--muted);">No bookings recorded this month.</div>'
     : dailyTableHTML(daily, daily.reduce(function(a,r){return {bookings:a.bookings+r.bookings,nights:a.nights+r.nights,villa:a.villa+r.villa,exec:a.exec+r.exec,revenue:a.revenue+r.revenue};},{bookings:0,nights:0,villa:0,exec:0,revenue:0})));
 
+  var detailTotalWithGstForE = sorted.reduce(function(a,b){ return a+totalInclGst(b); }, 0);
   var detailBody = sorted.length===0
-    ? '<tr class="empty-row"><td colspan="11">No bookings this month.</td></tr>'
+    ? '<tr class="empty-row"><td colspan="13">No bookings this month.</td></tr>'
     : sorted.map(function(b){
         var guestsTxt = (b.adults!=null?b.adults:2)+(b.children ? "+"+b.children : "");
         return '<tr><td>'+fmtDateShort(b.bookingDate)+'</td><td>'+esc(b.guestName)+'</td><td>'+esc(b.mobile)+'</td>'+
           '<td>'+esc(b.location)+'</td><td>'+fmtDateShort(b.checkIn)+'</td><td>'+fmtDateShort(b.checkOut)+'</td>'+
-          '<td>'+nightsBetween(b.checkIn,b.checkOut)+'</td><td>'+esc(b.roomType)+'</td><td>'+guestsTxt+'</td><td>'+fmtINR(b.amount)+'</td><td>'+esc(b.reference)+'</td></tr>';
+          '<td>'+nightsBetween(b.checkIn,b.checkOut)+'</td><td>'+esc(b.roomType)+'</td><td>'+guestsTxt+'</td>'+
+          '<td>'+fmtINR(b.amount)+'</td><td>'+(b.gstRate||0)+'%</td><td style="font-weight:700;">'+fmtINR(totalInclGst(b))+'</td><td>'+esc(b.reference)+'</td></tr>';
       }).join("");
-  html += reportSection("E","Booking Details", '<div class="table-wrap"><table style="min-width:820px;"><thead><tr>'+
-    ["Date","Guest","Mobile","Location","Check-in","Check-out","Nights","Room","Guests","Amount","Ref"].map(function(h){return '<th>'+h+'</th>';}).join("")+
+  html += reportSection("E","Booking Details", '<div class="table-wrap"><table style="min-width:920px;"><thead><tr>'+
+    ["Date","Guest","Mobile","Location","Check-in","Check-out","Nights","Room","Guests","Base Amt","GST","Total","Ref"].map(function(h){return '<th>'+h+'</th>';}).join("")+
     '</tr></thead><tbody>'+detailBody+'</tbody></table></div>');
 
-  html += '<div class="report-foot">Generated by KCR Monthly Room Booking &amp; Revenue Report tool · For internal management use</div>';
+  html += '<div class="report-foot">Generated by KCR Monthly Room Booking &amp; Revenue Report tool · For internal management use · GST rates should be verified with your accountant</div>';
   html += '</div>';
 
   document.getElementById("view").innerHTML = html;
@@ -812,15 +864,21 @@ function renderReport(){
   document.getElementById("exportXlsxBtn").addEventListener("click", function(){
     if(typeof XLSX === "undefined"){ alert("Excel export needs an internet connection the first time (library loads from CDN)."); return; }
     var wb = XLSX.utils.book_new();
+    var monthGst = list.reduce(function(a,b){ return a+gstAmountFor(b); }, 0);
+    var monthTotalWithGst = stats.revenue + monthGst;
     var summaryRows = [
       ["KCR — Monthly Room Booking & Revenue Report"],["Month", monthLabel(state.selectedMonth)],[],
-      ["Total Bookings", stats.total],["Total Room Nights", stats.totalNights],["Total Revenue (Rs.)", stats.revenue],[],
+      ["Total Bookings", stats.total],["Total Room Nights", stats.totalNights],
+      ["Total Revenue (Rs., before GST)", stats.revenue],["Total GST Collected (Rs.)", monthGst],
+      ["Total incl. GST (Rs.)", monthTotalWithGst],[],
       ["Room Type","Bookings","Room Nights","Revenue (Rs.)"]
     ];
     byRoom.forEach(function(r){ summaryRows.push([r.name,r.bookings,r.nights,r.revenue]); });
     summaryRows.push([]); summaryRows.push(["Reference","Bookings","Room Nights","Revenue (Rs.)"]);
     bySrc.forEach(function(r){ summaryRows.push([r.name,r.bookings,r.nights,r.revenue]); });
     summaryRows.push([]); summaryRows.push(["", "", "TOTAL REVENUE (Rs.)", stats.revenue]);
+    summaryRows.push(["", "", "TOTAL GST (Rs.)", monthGst]);
+    summaryRows.push(["", "", "GRAND TOTAL incl. GST (Rs.)", monthTotalWithGst]);
     var summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
     XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
 
@@ -836,15 +894,19 @@ function renderReport(){
     var detailTotalNights = sorted.reduce(function(a,b){ return a+nightsBetween(b.checkIn,b.checkOut); }, 0);
     var detailTotalAdults = sorted.reduce(function(a,b){ return a+(b.adults!=null?b.adults:2); }, 0);
     var detailTotalChildren = sorted.reduce(function(a,b){ return a+(b.children||0); }, 0);
+    var detailTotalGst = sorted.reduce(function(a,b){ return a+gstAmountFor(b); }, 0);
+    var detailTotalWithGst = sorted.reduce(function(a,b){ return a+totalInclGst(b); }, 0);
     var detailRows = sorted.map(function(b){
       return {"Booking Date":fmtDateShort(b.bookingDate), Guest:b.guestName, Mobile:b.mobile, Location:b.location,
         "Check-in":fmtDateShort(b.checkIn), "Check-out":fmtDateShort(b.checkOut), Nights:nightsBetween(b.checkIn,b.checkOut),
         "Room Type":b.roomType, Adults:(b.adults!=null?b.adults:2), Children:(b.children||0),
-        "Amount (Rs.)":b.amount, Reference:b.reference, Remarks:b.remarks||""};
+        "Base Amount (Rs.)":b.amount, "GST %":(b.gstRate||0), "GST Amount (Rs.)":gstAmountFor(b), "Total (Rs.)":totalInclGst(b),
+        Reference:b.reference, Remarks:b.remarks||""};
     });
     detailRows.push({"Booking Date":"", Guest:"", Mobile:"", Location:"", "Check-in":"", "Check-out":"",
       Nights:detailTotalNights, "Room Type":"TOTAL", Adults:detailTotalAdults, Children:detailTotalChildren,
-      "Amount (Rs.)":detailTotalAmount, Reference:"", Remarks:""});
+      "Base Amount (Rs.)":detailTotalAmount, "GST %":"", "GST Amount (Rs.)":detailTotalGst, "Total (Rs.)":detailTotalWithGst,
+      Reference:"", Remarks:""});
     var detailSheet = XLSX.utils.json_to_sheet(detailRows);
     XLSX.utils.book_append_sheet(wb, detailSheet, "Booking Details");
     XLSX.writeFile(wb, "KCR-Monthly-Report-"+state.selectedMonth+".xlsx");
