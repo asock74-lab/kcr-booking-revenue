@@ -202,6 +202,7 @@ window.__firebaseConfig = {
 /* ---------- constants ---------- */
 var ROOM_TYPES = ["Pool Villa", "Executive"];
 var REFERENCES = ["Walk-in", "OTA", "Agent", "Direct", "Phone", "Website", "Other"];
+var ID_TYPES = ["Aadhar", "Driving Licence", "Passport", "Voter ID", "Other"];
 var STORAGE_KEY = "kcr-booking-revenue-v1";
 var COLORS = { gold:"#B8935B", teal:"#3F6D5C" };
 
@@ -582,7 +583,9 @@ function renderBookings(){
     : rows.map(function(b){
         var guestsTxt = (b.adults!=null?b.adults:2)+(b.children ? "+"+b.children : "");
         return '<tr><td>'+fmtDateShort(b.bookingDate)+'</td>'+
-          '<td style="font-weight:600;">'+esc(b.guestName)+(b.isSample?'<span class="badge">SAMPLE</span>':'')+'</td>'+
+          '<td style="font-weight:600;">'+esc(b.guestName)+(b.isSample?'<span class="badge">SAMPLE</span>':'')+
+            (b.idType ? '<span title="'+esc(b.idType)+' '+esc(b.idNumber||"")+'" style="margin-left:6px;opacity:.6;">🪪</span>' : '')+
+          '</td>'+
           '<td>'+esc(b.mobile)+'</td><td>'+esc(b.location)+'</td>'+
           '<td>'+fmtDateShort(b.checkIn)+'</td><td>'+fmtDateShort(b.checkOut)+'</td>'+
           '<td>'+nightsBetween(b.checkIn,b.checkOut)+'</td><td>'+esc(b.roomType)+'</td>'+
@@ -624,10 +627,12 @@ function renderBookings(){
 function openBookingModal(booking){
   state.editing = booking;
   var f = booking || {bookingDate:todayISO(), checkIn:todayISO(), checkOut:todayISO(), guestName:"", mobile:"",
-    location:"", roomType:ROOM_TYPES[0], amount:"", reference:REFERENCES[0], remarks:"", adults:2, children:0};
+    location:"", roomType:ROOM_TYPES[0], amount:"", reference:REFERENCES[0], remarks:"", adults:2, children:0,
+    idType:"", idNumber:""};
   var nights = f.checkIn && f.checkOut ? nightsBetween(f.checkIn,f.checkOut) : 0;
   var roomOpts = ROOM_TYPES.map(function(r){ return '<option value="'+r+'"'+(f.roomType===r?' selected':'')+'>'+r+'</option>'; }).join("");
   var refOpts = REFERENCES.map(function(r){ return '<option value="'+r+'"'+(f.reference===r?' selected':'')+'>'+r+'</option>'; }).join("");
+  var idOpts = '<option value="">— Not captured —</option>' + ID_TYPES.map(function(t){ return '<option value="'+t+'"'+(f.idType===t?' selected':'')+'>'+t+'</option>'; }).join("");
 
   var html = '<div class="modal-bg" id="modalBg"><div class="modal">'+
     '<div class="modal-head"><h3>'+(booking?"Edit Booking":"Add Booking")+'</h3><button class="close-x" id="modalClose">✕</button></div>'+
@@ -647,6 +652,13 @@ function openBookingModal(booking){
       field("Nights (auto)", '<div class="input" style="background:#F1EEE4;color:var(--muted);" id="nightsDisplay">'+nights+' night'+(nights===1?"":"s")+'</div>')+
     '</div>'+
     field("Remarks (optional)", '<input class="input" id="f_remarks" value="'+esc(f.remarks||"")+'" placeholder="Any notes">')+
+    '<div style="border-top:1px solid var(--line);margin:16px 0 14px;padding-top:14px;">'+
+      '<div class="eyebrow" style="margin-bottom:10px;">Identity Proof (captured at arrival)</div>'+
+      '<div class="form-grid">'+
+        field("ID Type", '<select class="input" id="f_idType">'+idOpts+'</select>')+
+        field("ID Number", '<input class="input" id="f_idNumber" value="'+esc(f.idNumber||"")+'" placeholder="e.g. XXXX XXXX 1234">')+
+      '</div>'+
+    '</div>'+
     '<div class="modal-actions"><button class="btn btn-outline" id="modalCancel">Cancel</button>'+
     '<button class="btn btn-gold" id="modalSave">'+(booking?"Save Changes":"Add Booking")+'</button></div>'+
     '</div></div>';
@@ -665,6 +677,8 @@ function openBookingModal(booking){
   document.getElementById("modalClose").addEventListener("click", closeModal);
   document.getElementById("modalCancel").addEventListener("click", closeModal);
   document.getElementById("modalSave").addEventListener("click", function(){
+    var idNumberVal = document.getElementById("f_idNumber").value.trim();
+    var idTypeVal = document.getElementById("f_idType").value;
     var form = {
       id: booking ? booking.id : uid(),
       bookingDate: document.getElementById("f_bookingDate").value,
@@ -679,6 +693,8 @@ function openBookingModal(booking){
       children: Number(document.getElementById("f_children").value),
       amount: Number(document.getElementById("f_amount").value),
       remarks: document.getElementById("f_remarks").value.trim(),
+      idType: idTypeVal,
+      idNumber: idNumberVal,
       isSample: booking ? booking.isSample : false
     };
     var err = "";
@@ -688,6 +704,7 @@ function openBookingModal(booking){
     else if(!document.getElementById("f_amount").value || isNaN(form.amount) || form.amount<0) err = "Enter a valid amount.";
     else if(!document.getElementById("f_adults").value || isNaN(form.adults) || form.adults<1) err = "Enter at least 1 adult.";
     else if(document.getElementById("f_children").value==="" || isNaN(form.children) || form.children<0) err = "Enter a valid number of children (0 or more).";
+    else if(idNumberVal && !idTypeVal) err = "Select an ID type to go with the ID number.";
     if(err){ document.getElementById("modalErr").innerHTML = '<div class="err-box">⚠ '+err+'</div>'; return; }
 
     saveBooking(form);
