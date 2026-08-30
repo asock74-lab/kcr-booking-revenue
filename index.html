@@ -294,7 +294,7 @@ function makeSampleData(){
   var payMap = {"Walk-in":"Cash","OTA":"Card","Agent":"Bank Transfer","Direct":"UPI","Phone":"UPI","Website":"Card","Other":"Cash"};
   return rows.map(function(r){
     var nights = nightsBetween(r[4], r[5]);
-    return {id:uid(),bookingDate:r[0],guestName:r[1],mobile:r[2],location:r[3],checkIn:r[4],checkOut:r[5],
+    return {id:uid(),bookingDate:r[0],guestName:r[1],mobile:r[2],guestEmail:"",location:r[3],checkIn:r[4],checkOut:r[5],
       roomType:r[6],amount:r[7],reference:r[8],paymentMethod:(payMap[r[8]]||"Cash"),remarks:r[9],adults:r[10],children:r[11],
       gstRate:suggestGstRate(r[7], nights), isSample:true};
   });
@@ -792,7 +792,7 @@ function renderBookings(){
 /* ---------- booking modal ---------- */
 function openBookingModal(booking){
   state.editing = booking;
-  var f = booking || {bookingDate:todayISO(), checkIn:todayISO(), checkOut:todayISO(), guestName:"", mobile:"",
+  var f = booking || {bookingDate:todayISO(), checkIn:todayISO(), checkOut:todayISO(), guestName:"", mobile:"", guestEmail:"",
     location:"", roomType:ROOM_TYPES[0], amount:"", reference:REFERENCES[0], paymentMethod:PAYMENT_METHODS[0], remarks:"", adults:2, children:0,
     idType:"", idNumber:"", gstRate:null};
   var nights = f.checkIn && f.checkOut ? nightsBetween(f.checkIn,f.checkOut) : 0;
@@ -812,6 +812,7 @@ function openBookingModal(booking){
       field("Check-in Date", '<input type="date" class="input" id="f_checkIn" value="'+f.checkIn+'">')+
       field("Check-out Date", '<input type="date" class="input" id="f_checkOut" value="'+f.checkOut+'">')+
       field("Mobile Number", '<input class="input" id="f_mobile" value="'+esc(f.mobile)+'" placeholder="10-digit number">')+
+      field("Guest Email", '<input type="email" class="input" id="f_guestEmail" value="'+esc(f.guestEmail||"")+'" placeholder="guest@email.com">')+
       field("Location / City", '<input class="input" id="f_location" value="'+esc(f.location)+'" placeholder="Guest\u2019s city">')+
       field("Room Type", '<select class="input" id="f_roomType">'+roomOpts+'</select>')+
       field("Booking Source", '<select class="input" id="f_reference">'+refOpts+'</select>')+
@@ -880,6 +881,7 @@ function openBookingModal(booking){
       checkIn: document.getElementById("f_checkIn").value,
       checkOut: document.getElementById("f_checkOut").value,
       mobile: document.getElementById("f_mobile").value.trim(),
+      guestEmail: document.getElementById("f_guestEmail").value.trim(),
       location: document.getElementById("f_location").value.trim(),
       roomType: document.getElementById("f_roomType").value,
       reference: document.getElementById("f_reference").value,
@@ -896,6 +898,8 @@ function openBookingModal(booking){
     };
     var err = "";
     if(!form.guestName) err = "Guest name is required.";
+    else if(!form.guestEmail) err = "Guest email is required.";
+    else if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.guestEmail)) err = "Enter a valid email address.";
     else if(!form.checkIn || !form.checkOut) err = "Check-in and check-out dates are required.";
     else if(parseISO(form.checkOut) < parseISO(form.checkIn)) err = "Check-out cannot be before check-in.";
     else if(!document.getElementById("f_amount").value || isNaN(form.amount) || form.amount<0) err = "Enter a valid amount.";
