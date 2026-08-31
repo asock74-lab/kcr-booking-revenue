@@ -214,6 +214,7 @@ var GSTIN = "33AIHPA7551R1ZX";
 var BUSINESS_PHONE = "8148022804";
 var BUSINESS_WEBSITE = "www.kingscourtresort.com";
 var BUSINESS_EMAIL = "booking@kingscourtresort.com";
+var LOCATION_MAP_URL = "https://share.google/JTIdVB5zwyul8jUUG";
 var STAFF_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000; /* staff can edit a booking for 24h after it was added */
 var GST_RATES = [0, 5, 12, 18]; /* available GST% choices */
 var GST_THRESHOLD_PER_NIGHT = 7500; /* per current Indian hotel GST rules: <=7500/night avg -> 5%, above -> 18% */
@@ -241,8 +242,10 @@ function sendBookingConfirmationEmail(booking){
       advance_paid: fmtINR(booking.advance||0),
       balance_due_at_checkin: balanceDueFor(booking) > 0 ? fmtINR(balanceDueFor(booking)) : "Paid in Full",
       payment_status: booking.paymentMethod || "Pending",
+      location_map_link: LOCATION_MAP_URL,
       message: "Booking confirmed for " + booking.guestName + ", Room: " + booking.roomType + ", Check-in: " + fmtDateShort(booking.checkIn) + ", Check-out: " + fmtDateShort(booking.checkOut) +
-        (booking.advance ? ", Advance Paid: " + fmtINR(booking.advance) + ", Balance Due at Check-in: " + (balanceDueFor(booking) > 0 ? fmtINR(balanceDueFor(booking)) : "Paid in Full") : "")
+        (booking.advance ? ", Advance Paid: " + fmtINR(booking.advance) + ", Balance Due at Check-in: " + (balanceDueFor(booking) > 0 ? fmtINR(balanceDueFor(booking)) : "Paid in Full") : "") +
+        ". Find us here: " + LOCATION_MAP_URL
     })
   }).then(function(res){ return res.json(); }).then(function(result){
     if(result.success){
@@ -263,6 +266,34 @@ function showToast(msg, isError){
     "font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.2);max-width:90vw;text-align:center;";
   document.body.appendChild(el);
   setTimeout(function(){ el.style.transition="opacity .4s"; el.style.opacity="0"; setTimeout(function(){ el.remove(); }, 400); }, 3200);
+}
+
+/* ---------- WhatsApp confirmation (SMS-equivalent, no backend/API key needed) ---------- */
+function whatsappNumberFor(mobile){
+  if(!mobile) return null;
+  var digits = String(mobile).replace(/\D/g,"");
+  if(digits.length===10) return "91"+digits;
+  if(digits.length===12 && digits.indexOf("91")===0) return digits;
+  return null;
+}
+function buildWhatsAppLink(b){
+  var num = whatsappNumberFor(b.mobile);
+  if(!num) return null;
+  var bal = balanceDueFor(b);
+  var lines = [
+    "Hi "+b.guestName+", your booking at Kings Court Resort is confirmed!",
+    "Room: "+b.roomType,
+    "Check-in: "+fmtDateShort(b.checkIn),
+    "Check-out: "+fmtDateShort(b.checkOut),
+    "Total: "+fmtINR(totalInclGst(b))
+  ];
+  if(b.advance){
+    lines.push("Advance Paid: "+fmtINR(b.advance));
+    lines.push("Balance Due at Check-in: "+(bal>0?fmtINR(bal):"Paid in Full"));
+  }
+  lines.push("Location: "+LOCATION_MAP_URL);
+  lines.push(BUSINESS_PHONE+" \u00b7 "+BUSINESS_WEBSITE);
+  return "https://wa.me/"+num+"?text="+encodeURIComponent(lines.join("\n"));
 }
 
 /* ---------- helpers ---------- */
@@ -803,6 +834,7 @@ function renderBookings(){
           '<td>'+esc(b.reference)+'</td>'+
           '<td style="white-space:nowrap;">'+
             '<button class="btn-ghost" style="border:none;background:none;cursor:pointer;" data-receipt="'+b.id+'" title="Print receipt">🧾</button> '+
+            (whatsappNumberFor(b.mobile) ? '<button class="btn-ghost" style="border:none;background:none;cursor:pointer;" data-whatsapp="'+b.id+'" title="Send WhatsApp confirmation">💬</button> ' : '')+
             (canEdit(b) ? '<button class="btn-ghost" style="border:none;background:none;cursor:pointer;" data-edit="'+b.id+'">✏️</button> '
                         : '<span title="More than 24h old — only the owner can edit" style="opacity:.35;">🔒</span> ')+
             (canDelete() ? '<button style="border:none;background:none;cursor:pointer;color:var(--rust);" data-del="'+b.id+'">🗑️</button>' : '')+
@@ -839,6 +871,13 @@ function renderBookings(){
     btn.addEventListener("click", function(){
       var b = state.bookings.find(function(x){ return x.id===btn.getAttribute("data-receipt"); });
       if(b) openReceiptModal(b);
+    });
+  });
+  document.querySelectorAll("[data-whatsapp]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var b = state.bookings.find(function(x){ return x.id===btn.getAttribute("data-whatsapp"); });
+      var link = b ? buildWhatsAppLink(b) : null;
+      if(link) window.open(link, "_blank");
     });
   });
 }
@@ -1032,7 +1071,7 @@ function openReceiptModal(b){
       '</div>'+
       '<div style="font-size:12px;color:var(--muted);margin-top:10px;">Payment Method: <strong style="color:var(--ink);">'+esc(b.paymentMethod||"—")+'</strong> · Booking Source: '+esc(b.reference)+'</div>'+
       '<div style="margin-top:34px;display:flex;justify-content:space-between;align-items:flex-end;font-size:11px;color:var(--muted);">'+
-        '<div>Thank you for staying with us.<br>'+esc(BUSINESS_PHONE)+' · '+esc(BUSINESS_WEBSITE)+' · '+esc(BUSINESS_EMAIL)+'</div>'+
+        '<div>Thank you for staying with us.<br>'+esc(BUSINESS_PHONE)+' · '+esc(BUSINESS_WEBSITE)+' · '+esc(BUSINESS_EMAIL)+'<br><a href="'+esc(LOCATION_MAP_URL)+'" target="_blank" style="color:var(--teal);">📍 Get Directions</a></div>'+
         '<div style="text-align:center;"><div style="border-top:1px solid var(--muted);width:130px;padding-top:4px;">Authorized Signatory</div></div>'+
       '</div>'+
     '</div>'+
