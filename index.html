@@ -187,7 +187,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script>
 window.__firebaseConfig = {
   apiKey: "AIzaSyATu8WowqRfBtte_naHiU67sDGwyXC5WBI",
@@ -221,38 +220,35 @@ var GST_THRESHOLD_PER_NIGHT = 7500; /* per current Indian hotel GST rules: <=750
 var STORAGE_KEY = "kcr-booking-revenue-v1";
 var COLORS = { gold:"#B8935B", teal:"#3F6D5C" };
 
-/* ---------- EmailJS (booking confirmation emails) ---------- */
-var EMAILJS_PUBLIC_KEY = "VwIg4N15oDc-HUxBP";
-var EMAILJS_PRIVATE_KEY = "wsanQ-HH8A1mGAMiJA-84";
-var EMAILJS_SERVICE_ID = "service_o9hoves";
-var EMAILJS_TEMPLATE_ID = "l4zeens";
-var emailjsReady = false;
-function initEmailJS(){
-  try{
-    if(typeof emailjs !== "undefined"){
-      emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY, privateKey: EMAILJS_PRIVATE_KEY });
-      emailjsReady = true;
-    }
-  }catch(e){ console.error("EmailJS init failed:", e); }
-}
-window.debugEmailJS = function(){ return {ready: emailjsReady, hasEmailjs: typeof emailjs, serviceId: EMAILJS_SERVICE_ID, templateId: EMAILJS_TEMPLATE_ID}; };
+/* ---------- Web3Forms (booking confirmation emails) ---------- */
+var WEB3FORMS_ACCESS_KEY = "83b3ac41-e598-4681-a049-82ca7c08fa4b";
 function sendBookingConfirmationEmail(booking){
-  if(!emailjsReady || typeof emailjs === "undefined") return;
   if(!booking.guestEmail) return;
-  var params = {
-    guest_name: booking.guestName,
-    guest_email: booking.guestEmail,
-    room_type: booking.roomType,
-    checkin_date: fmtDateShort(booking.checkIn),
-    checkout_date: fmtDateShort(booking.checkOut),
-    rate: fmtINR(booking.amount),
-    total_amount: fmtINR(totalInclGst(booking)),
-    deposit_status: booking.paymentMethod || "Pending"
-  };
-  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params, { publicKey: EMAILJS_PUBLIC_KEY, privateKey: EMAILJS_PRIVATE_KEY }).then(function(){
-    showToast("Booking saved — confirmation email sent.");
+  fetch("https://api.web3forms.com/submit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      access_key: WEB3FORMS_ACCESS_KEY,
+      subject: "New Booking Confirmation - Kings Court Resort",
+      from_name: "KCR Booking System",
+      email: booking.guestEmail,
+      guest_name: booking.guestName,
+      room_type: booking.roomType,
+      check_in: fmtDateShort(booking.checkIn),
+      check_out: fmtDateShort(booking.checkOut),
+      rate: fmtINR(booking.amount),
+      total_amount: fmtINR(totalInclGst(booking)),
+      payment_status: booking.paymentMethod || "Pending",
+      message: "Booking confirmed for " + booking.guestName + ", Room: " + booking.roomType + ", Check-in: " + fmtDateShort(booking.checkIn) + ", Check-out: " + fmtDateShort(booking.checkOut)
+    })
+  }).then(function(res){ return res.json(); }).then(function(result){
+    if(result.success){
+      showToast("Booking saved — confirmation email sent.");
+    } else {
+      showToast("Booking saved — email failed to send. Please follow up manually.", true);
+    }
   }).catch(function(err){
-    console.error("EmailJS send failed:", err);
+    console.error("Web3Forms send failed:", err);
     showToast("Booking saved — email failed to send. Please follow up manually.", true);
   });
 }
@@ -1450,7 +1446,6 @@ document.getElementById("signOutBtn").addEventListener("click", function(){
 });
 
 initAuth();
-initEmailJS();
 
 if("serviceWorker" in navigator){
   window.addEventListener("load", function(){
